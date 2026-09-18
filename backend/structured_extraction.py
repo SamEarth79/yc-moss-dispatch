@@ -22,7 +22,6 @@ EXAMPLE INPUT: my dad is choking on food he can't speak and he's turning blue
 EXAMPLE JSON OUTPUT:
 {
   "whatHappened": "choking",
-  "location": null,
   "numberOfPatients": 1,
   "consciousness": "conscious",
   "injuries": null,

@@ -11,3 +11,7 @@ wheels/
 
 # Secrets
 .env
+
+# Moss local index cache
+.moss-cache/
+.moss-device-id

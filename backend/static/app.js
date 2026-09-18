@@ -1,5 +1,6 @@
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
+const clockEl = document.getElementById("clock");
 const transcriptInput = document.getElementById("transcriptInput");
 const latencyEl = document.getElementById("latency");
 const extractionFields = document.getElementById("extractionFields");
@@ -148,7 +149,6 @@ function renderExtraction(fields) {
   extractionFields.appendChild(makeTile("Consciousness", fields.consciousness, consciousnessSeverity(fields.consciousness)));
   extractionFields.appendChild(makeTile("Weapons", fields.weapons === true ? "Yes" : fields.weapons === false ? "No" : null, weaponsSeverity(fields.weapons)));
 
-  extractionFields.appendChild(makeRow("Location", fields.location, "neutral"));
   extractionFields.appendChild(makeRow("Injuries", fields.injuries, injuriesSeverity(fields.injuries)));
 }
 
@@ -291,6 +291,19 @@ function connect() {
   };
 }
 
+function tickClock() {
+  clockEl.textContent = new Date().toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 setupCallerSelect();
 transcriptInput.addEventListener("input", (e) => sendTranscript(e.target.value));
+tickClock();
+setInterval(tickClock, 1000);
 connect();

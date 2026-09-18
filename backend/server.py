@@ -96,7 +96,24 @@ async def lifespan(app: FastAPI):
 
     moss_client = MossClient(project_id, project_key)
     print("Loading protocol-index and live-data-index into memory...")
-    await moss_client.load_indexes([PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME])
+
+    # cache_path persists the downloaded index to disk and reuses it on the next
+    # load if the cloud copy hasn't changed — every dev-server restart otherwise
+    # re-downloads both indexes from Moss Cloud for free, which is exactly what
+    # burned this project's usage credits during today's restart-heavy debugging.
+    cache_path = str(Path(__file__).resolve().parent / ".moss-cache")
+    index_names = [PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME]
+    result = await moss_client.load_indexes(index_names, cache_path=cache_path)
+    if result.failed:
+        # load_indexes is best-effort — it never raises, it just reports per-index
+        # failures — so a caller that ignores `.failed` gets a server that claims to
+        # be "ready" while some indexes are silently unqueryable. Retry once, then
+        # fail loudly rather than starting in that half-broken state.
+        print(f"Index load failed for {list(result.failed.keys())}, retrying once: {result.failed}")
+        retry = await moss_client.load_indexes(list(result.failed.keys()), cache_path=cache_path)
+        if retry.failed:
+            raise RuntimeError(f"Failed to load indexes after retry: {retry.failed}")
+
     print("Indexes loaded. Ready for connections.")
     yield
     await moss_client.unload_indexes([PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME])

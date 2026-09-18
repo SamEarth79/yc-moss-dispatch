@@ -76,6 +76,16 @@ header h1 {
   color: var(--color-fog);
 }
 
+.clock {
+  font-family: var(--font-mono);
+  color: var(--color-mist);
+  letter-spacing: -0.013em;
+}
+
+.status-sep {
+  color: var(--color-graphite);
+}
+
 .dot {
   width: 8px;
   height: 8px;
