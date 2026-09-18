@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Dispatch Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Dispatch Copilot</h1>
+    <div class="status">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">Connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel transcript-panel">
+      <h2>Caller Location</h2>
+      <select id="callerSelect" class="caller-select"></select>
+      <p id="resolvedAddress" class="resolved-address"></p>
+
+      <h2 class="section-gap">Caller Transcript</h2>
+      <textarea
+        id="transcriptInput"
+        class="transcript-input"
+        rows="4"
+        placeholder="Type what the caller is saying, as if it were arriving live from ASR…"
+      ></textarea>
+      <div class="latency-row">
+        <span class="latency-label">Retrieval latency</span>
+        <span id="latency" class="latency-value">—</span>
+      </div>
+    </section>
+
+    <div class="middle-column">
+      <section class="panel summary-panel">
+        <h2>Structured Summary</h2>
+        <div id="extractionFields" class="extraction-grid">
+          <div class="extraction-empty">Waiting for transcript…</div>
+        </div>
+      </section>
+
+      <section class="panel instruction-panel">
+        <h2>Instruction</h2>
+        <div id="priorityBadge" class="badge">—</div>
+        <p id="instructionText" class="instruction-text">Start typing above to see live guidance…</p>
+        <div id="actionRow" class="action-row"></div>
+      </section>
+    </div>
+
+    <aside class="sidebar">
+      <section class="panel context-panel">
+        <h2 id="incidentsHeading">Past Incidents</h2>
+        <div id="incidentList" class="incident-cards"></div>
+
+        <h3>Nearest Facilities</h3>
+        <div id="facilityList" class="facility-cards"></div>
+      </section>
+
+      <section class="panel unit-panel">
+        <h2>Unit Status</h2>
+        <ul id="unitList" class="unit-list"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <section class="panel dev-feed-panel">
+    <h2>Developer Feed <span class="dev-feed-hint">live calls to Moss &amp; DeepSeek</span></h2>
+    <div id="devFeed" class="dev-feed">
+      <div class="extraction-empty">No calls yet…</div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

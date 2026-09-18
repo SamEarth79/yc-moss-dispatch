@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "lastUpdated": "2026-09-18T00:00:00Z",
+  "features": {
+    "MOS-001-index-management": {
+      "design": "complete",
+      "branch": null,
+      "stories": {
+        "MOS-STORY-001-001": { "status": "pending", "step": null, "commit": null },
+        "MOS-STORY-001-002": { "status": "pending", "step": null, "commit": null },
+        "MOS-STORY-001-003": { "status": "pending", "step": null, "commit": null },
+        "MOS-STORY-001-004": { "status": "pending", "step": null, "commit": null }
+      },
+      "pr": { "number": null, "url": null, "state": "none", "reviewCycles": 0 },
+      "asana": {
+        "epicGid": "1218634557845085",
+        "stories": {
+          "MOS-STORY-001-001": "1218634557308353",
+          "MOS-STORY-001-002": "1218634670777403",
+          "MOS-STORY-001-003": "1218634671625821",
+          "MOS-STORY-001-004": "1218634558372804"
+        }
+      }
+    }
+  },
+  "resume": { "feature": null, "story": null, "note": null }
+}

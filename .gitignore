@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.moss-cache/
+backend/.venv/
+__pycache__/
+*.pyc
+.moss-device-id

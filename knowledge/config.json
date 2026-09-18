@@ -1,0 +1,7 @@
+{
+  "prefix": "MOS",
+  "nextFeatureNumber": 2,
+  "nextStoryNumber": {
+    "MOS-001-index-management": 5
+  }
+}
