@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from moss import MossClient, QueryOptions
 from starlette.websockets import WebSocketState
@@ -323,6 +323,42 @@ async def ws_session(websocket: WebSocket):
     finally:
         status_task.cancel()
         worker_task.cancel()
+
+
+@app.get("/api/indexes")
+async def list_indexes():
+    try:
+        indexes = await moss_client.list_indexes()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list indexes")
+
+    return [
+        {
+            "name": index.name,
+            "docCount": index.doc_count,
+            "status": index.status,
+            "model": index.model.id,
+            "updatedAt": index.updated_at,
+        }
+        for index in indexes
+    ]
+
+
+@app.get("/api/indexes/{name}/docs")
+async def get_index_docs(name: str):
+    try:
+        await moss_client.get_index(name)
+    except RuntimeError:
+        raise HTTPException(status_code=404, detail=f"Index '{name}' not found")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to look up index")
+
+    try:
+        docs = await moss_client.get_docs(name)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to retrieve index documents")
+
+    return [{"id": doc.id, "text": doc.text, "metadata": doc.metadata} for doc in docs]
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
