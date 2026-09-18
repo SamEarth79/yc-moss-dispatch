@@ -64,6 +64,6 @@ that I can browse existing content before editing it.
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

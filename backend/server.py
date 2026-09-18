@@ -20,16 +20,19 @@ intermediate states. See transcript_worker below.
 
 import asyncio
 import hashlib
+import logging
 import os
 import random
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from moss import MossClient, QueryOptions
+from moss import DocumentInfo, MossClient, QueryOptions
+from pydantic import BaseModel, field_validator
 from starlette.websockets import WebSocketState
 
 from live_panel import LIVE_DATA_INDEX_NAME, PROTOCOL_INDEX_NAME, WINDOW_WORDS, trailing_window
@@ -37,6 +40,8 @@ from query_nearest_facility import haversine_miles, nearest_facility
 from structured_extraction import extract_structured_fields
 
 NEAREST_FACILITIES_SHOWN = 3
+
+logger = logging.getLogger(__name__)
 
 
 def distance_label(miles: float) -> str:
@@ -340,6 +345,126 @@ async def ws_session(websocket: WebSocket):
     finally:
         status_task.cancel()
         worker_task.cancel()
+
+
+@app.get("/api/indexes")
+async def list_indexes():
+    try:
+        indexes = await moss_client.list_indexes()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to list indexes")
+
+    return [
+        {
+            "name": index.name,
+            "docCount": index.doc_count,
+            "status": index.status,
+            "model": index.model.id,
+            "updatedAt": index.updated_at,
+        }
+        for index in indexes
+    ]
+
+
+@app.get("/api/indexes/{name}/docs")
+async def get_index_docs(name: str):
+    try:
+        await moss_client.get_index(name)
+    except RuntimeError:
+        raise HTTPException(status_code=404, detail=f"Index '{name}' not found")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to look up index")
+
+    try:
+        docs = await moss_client.get_docs(name)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to retrieve index documents")
+
+    return [{"id": doc.id, "text": doc.text, "metadata": doc.metadata} for doc in docs]
+
+
+class AddDocRequest(BaseModel):
+    id: str
+    text: str
+    metadata: Optional[dict[str, str]] = None
+
+    @field_validator("id", "text")
+    @classmethod
+    def not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
+
+
+class UpdateDocRequest(BaseModel):
+    text: str
+    metadata: Optional[dict[str, str]] = None
+
+    @field_validator("text")
+    @classmethod
+    def not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
+
+
+LIVE_LOADED_INDEXES = {PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME}
+
+
+async def _reload_if_live(name: str) -> None:
+    """Refresh the in-memory copy of a live-loaded index after a mutation.
+
+    The SDK's cloud-mutation path and local-query path are fully decoupled,
+    so without this, edits would silently not appear in the live dispatch
+    demo. The mutation itself already succeeded by the time this runs, so a
+    reload failure here is logged and swallowed rather than surfaced as a
+    request failure — the caller's write did go through.
+    """
+    if name not in LIVE_LOADED_INDEXES:
+        return
+
+    try:
+        await moss_client.load_index(name)
+    except Exception:
+        logger.exception("Failed to reload live index '%s' after mutation", name)
+
+
+@app.post("/api/indexes/{name}/docs")
+async def add_index_doc(name: str, body: AddDocRequest):
+    doc = DocumentInfo(id=body.id, text=body.text, metadata=body.metadata)
+
+    try:
+        await moss_client.add_docs(name, [doc])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to add document")
+
+    await _reload_if_live(name)
+
+    return {"id": body.id}
+
+
+@app.put("/api/indexes/{name}/docs/{doc_id}")
+async def update_index_doc(name: str, doc_id: str, body: UpdateDocRequest):
+    doc = DocumentInfo(id=doc_id, text=body.text, metadata=body.metadata)
+
+    try:
+        await moss_client.add_docs(name, [doc])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to update document")
+
+    await _reload_if_live(name)
+
+    return {"id": doc_id}
+
+
+@app.delete("/api/indexes/{name}/docs/{doc_id}", status_code=204)
+async def delete_index_doc(name: str, doc_id: str):
+    try:
+        await moss_client.delete_docs(name, [doc_id])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to delete document")
+
+    await _reload_if_live(name)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
