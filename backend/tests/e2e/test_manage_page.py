@@ -6,6 +6,8 @@ instead of calling a real Moss client. The frontend code under test
 (manage.html/manage.js) is exactly what ships — nothing about it is mocked.
 """
 
+from playwright.sync_api import expect
+
 PROTOCOL_DOCS = [
     {
         "id": "chunk-1",
@@ -135,7 +137,7 @@ def test_index_list_failure_shows_error_banner_with_retry(page, live_server_url,
 
     retry_button.click()
 
-    assert banner.is_hidden()
+    expect(banner).to_be_hidden()
     select = page.locator("#indexSelect")
-    assert select.is_enabled()
-    assert select.locator("option").inner_text() == "protocol-index"
+    expect(select).to_be_enabled()
+    expect(select.locator("option")).to_have_text("protocol-index")

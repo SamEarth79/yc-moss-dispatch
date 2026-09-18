@@ -97,3 +97,56 @@ bugs were found in this story's code; nothing was surfaced back to
 
 Full detail, exact commands, and per-test AC mapping are in
 `test-results.md`'s `MOS-STORY-001-002` section. Overall verdict: PASS.
+
+## MOS-STORY-001-004: Add/edit/delete chunk UI
+
+QA pass over the new inline add/edit/delete chunk UI in
+`backend/static/manage.js` (plus its `manage.html`/`style.css` support).
+Since this story is E2E-required per `rules/testing.md` (a full new
+user-facing CRUD surface), `backend/tests/e2e/conftest.py`'s stub FastAPI
+app was extended with genuinely stateful `POST`/`PUT`/`DELETE
+/api/indexes/{name}/docs[...]` handlers (an in-memory dict keyed by chunk
+id, mirroring `server.py`'s real contract), so the 11 new tests in
+`backend/tests/e2e/test_manage_crud.py` prove every add/edit/delete
+end-to-end through the real page's own fetch and re-render — nothing is
+mocked at the JS layer. The existing read-only `test_manage_page.py`
+suite was left untouched.
+
+All 10 acceptance criteria are covered: golden-path add with success
+toast; add-with-existing-id showing "Updated" rather than "Added"; the
+add form clearing its text field while keeping group context for a
+following add; edit-in-place with no duplicate row; editing a chunk's
+`sourceDoc` moving it to the correct (possibly new) rendered group;
+Cancel discarding input, restoring the original text, and — verified via
+a network-request listener, not just visible text — sending no request
+at all; delete removing the row only after server confirmation with a
+toast naming what was deleted; explicit confirmation that no native
+confirm dialog fires on delete; a forced 500 on save leaving the form
+open with the user's input intact and an inline error shown; a forced
+500 on delete leaving the chunk visible with an error shown; and a
+keyboard-only activation of a metadata row's remove button. AC10's
+broader keyboard-focus-management coverage (e.g. exhaustive `Tab`-order
+sequencing across every control) was only partially exercised — flagged
+as a residual gap rather than forced, since every control here is a
+native `<button>` already keyboard-operable by default.
+
+One pre-existing issue was found and is **not** part of this story's
+scope to fix: `tests/e2e/test_manage_page.py`'s
+`test_index_list_failure_shows_error_banner_with_retry` is flaky
+(intermittently fails, ~1 in 5 runs observed) because it asserts DOM
+state with Playwright's non-retrying `is_hidden()`/`is_enabled()` right
+after a click, instead of the auto-retrying `expect(...)` API. Confirmed
+via `git stash` that this reproduces identically on the unmodified
+MOS-STORY-001-002 code, so it long predates this story and is unrelated
+to `manage.js`/`manage.html`/`server.py`. Surfaced for a follow-up fix
+to that test file rather than touched here, per this story's instruction
+to keep it untouched.
+
+`test_server.py` remains 20/20 (no backend route changes in this story).
+The new `test_manage_crud.py` suite is 11/11, stable across three
+consecutive full runs.
+
+Full detail, exact commands, and per-test AC mapping are in
+`test-results.md`'s `MOS-STORY-001-004` section. Overall verdict:
+**PASS WITH CAVEATS** — the caveat is the pre-existing, unrelated flake
+described above, not a defect in this story's own code or tests.

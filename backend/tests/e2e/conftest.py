@@ -25,13 +25,25 @@ STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
 
 
 class StubState:
-    """Mutable per-test response configuration for the two stubbed routes."""
+    """Mutable per-test response configuration for the stubbed routes.
+
+    The mutation routes (POST/PUT/DELETE, added for MOS-STORY-001-004) are
+    stateful and in-memory: a successful add/update writes into
+    `docs_by_index[name]` keyed by chunk id, and a successful delete removes
+    it, so a test can prove an add/edit/delete is genuinely observable
+    end-to-end (a fresh GET, or the real page re-rendering after its own
+    fetch) rather than mocked at the JS layer. `mutation_status` overrides
+    the response code for POST/PUT/DELETE only, independent of
+    `docs_status` (which only affects GET), so a test can make a save/delete
+    fail without also breaking the page's initial load.
+    """
 
     def __init__(self):
         self.indexes = []
         self.indexes_status = 200
         self.docs_by_index = {}
         self.docs_status = 200
+        self.mutation_status = 200
 
 
 def build_stub_app(state: StubState) -> FastAPI:
@@ -50,6 +62,39 @@ def build_stub_app(state: StubState) -> FastAPI:
         if name not in state.docs_by_index:
             raise HTTPException(status_code=404, detail=f"Index '{name}' not found")
         return state.docs_by_index[name]
+
+    @app.post("/api/indexes/{name}/docs")
+    async def add_index_doc(name: str, body: dict):
+        if state.mutation_status != 200:
+            raise HTTPException(status_code=state.mutation_status, detail="stub failure")
+        chunks = state.docs_by_index.setdefault(name, [])
+        existing = next((c for c in chunks if c["id"] == body["id"]), None)
+        chunk = {"id": body["id"], "text": body["text"], "metadata": body.get("metadata")}
+        if existing is not None:
+            existing.update(chunk)
+        else:
+            chunks.append(chunk)
+        return {"id": body["id"]}
+
+    @app.put("/api/indexes/{name}/docs/{doc_id}")
+    async def update_index_doc(name: str, doc_id: str, body: dict):
+        if state.mutation_status != 200:
+            raise HTTPException(status_code=state.mutation_status, detail="stub failure")
+        chunks = state.docs_by_index.setdefault(name, [])
+        existing = next((c for c in chunks if c["id"] == doc_id), None)
+        chunk = {"id": doc_id, "text": body["text"], "metadata": body.get("metadata")}
+        if existing is not None:
+            existing.update(chunk)
+        else:
+            chunks.append(chunk)
+        return {"id": doc_id}
+
+    @app.delete("/api/indexes/{name}/docs/{doc_id}", status_code=204)
+    async def delete_index_doc(name: str, doc_id: str):
+        if state.mutation_status != 200:
+            raise HTTPException(status_code=state.mutation_status, detail="stub failure")
+        chunks = state.docs_by_index.setdefault(name, [])
+        state.docs_by_index[name] = [c for c in chunks if c["id"] != doc_id]
 
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

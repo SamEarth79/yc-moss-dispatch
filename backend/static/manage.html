@@ -24,6 +24,7 @@
       <label for="indexSelect" class="index-select-label">Index</label>
       <select id="indexSelect" class="caller-select" disabled></select>
       <span id="indexCountBadge" class="badge"></span>
+      <button id="newDocumentButton" class="action-button new-document-button" type="button">+ New Document</button>
     </section>
 
     <div id="errorBanner" class="error-banner" hidden>
@@ -31,8 +32,13 @@
       <button id="retryButton" class="action-button none" type="button">Retry</button>
     </div>
 
+    <div id="newDocFormSlot"></div>
+
     <section id="docsArea" class="docs-area"></section>
   </main>
+
+  <div id="toastContainer" class="toast-container" aria-hidden="true"></div>
+  <div id="liveRegion" aria-live="polite" class="visually-hidden"></div>
 
   <script src="manage.js"></script>
 </body>

@@ -260,3 +260,148 @@ already-established pattern from MOS-STORY-001-001.
 passing, full pre-existing suite (unit/feature: `test_server.py`; E2E:
 `test_manage_page.py`) green with no regressions. No implementation
 issues found — nothing surfaced back to `backend`.
+
+## MOS-STORY-001-004
+
+Commands:
+- `cd backend && uv run pytest test_server.py -v`
+- `cd backend && uv run pytest tests/e2e/test_manage_page.py -v --browser chromium`
+- `cd backend && uv run pytest tests/e2e/test_manage_crud.py -v --browser chromium`
+
+Results:
+- `test_server.py`: **20 passed, 0 failed** (unchanged from
+  MOS-STORY-001-002 — this story touches no backend route code), 1
+  warning (the same pre-existing, unrelated `anyio.abc.BlockingPortal`
+  deprecation warning).
+- `tests/e2e/test_manage_page.py`: **4/5 passed on the representative run
+  below, intermittently 5/5 on others** — see "Pre-existing flake found"
+  below. This is not a regression from this story's changes.
+- `tests/e2e/test_manage_crud.py` (new): **11 passed, 0 failed**, stable
+  across 3 repeated full runs.
+
+### Layers
+
+- **Unit tests: none written.** All new logic (`buildChunkForm`,
+  `createMetadataEditor`, upsert/remove-and-rerender, toast wording) is UI
+  behavior driven by real DOM events and network calls, not isolable
+  business logic with mockable collaborators worth testing apart from the
+  rendered page. The E2E layer below drives every one of these code paths
+  through the real browser, which is the more meaningful test for this
+  kind of code per `rules/testing.md`'s scoping (component *unit* tests
+  are for logic in isolation; this story's logic is inseparable from DOM
+  state and fetch calls).
+- **Feature tests: not applicable as a separate layer.** This story adds
+  no new backend route (MOS-STORY-001-002 already built and tested
+  `POST`/`PUT`/`DELETE`); its only new surface is the frontend UI, which
+  the E2E layer covers end-to-end.
+- **E2E tests: 11 written, 11 passed**, in
+  `backend/tests/e2e/test_manage_crud.py`, run against the real
+  `manage.html`/`manage.js` (unchanged) via a stub FastAPI app whose
+  `/api/indexes/{name}/docs[...]` POST/PUT/DELETE routes were extended in
+  `backend/tests/e2e/conftest.py` to be genuinely stateful (an in-memory
+  dict keyed by chunk id, mirroring `server.py`'s real routes' request/
+  response contract) — so every add/edit/delete in these tests is proven
+  by the page's own real fetch + re-render, nothing is mocked at the JS
+  layer. Covering the 10 acceptance criteria:
+  - `test_add_chunk_golden_path_appears_in_group_with_success_toast` —
+    AC1/AC2: opens "+ Add chunk" on a group, fills id/text, saves, asserts
+    the new chunk row appears in that group with the entered text and a
+    toast reading `Added new chunk "chunk-new"` appears.
+  - `test_add_chunk_with_existing_id_reports_updated_not_added` — AC3:
+    adding a chunk with an id already in the fixture data shows
+    `Updated existing chunk "chunk-1"`, and asserts the "Added new chunk"
+    wording is absent.
+  - `test_add_chunk_clears_text_field_but_keeps_group_context_for_next_add`
+    — AC4: after a successful add, the form reopens with an empty text
+    field but the metadata editor still pre-filled with the same
+    `sourceDoc` group value, and a second chunk added without re-entering
+    the group value lands in the same group.
+  - `test_edit_chunk_updates_text_in_place_without_duplicating` — AC2/AC9
+    (text portion): opens "Edit" on `chunk-1`, changes its text, saves,
+    asserts the updated text appears and there is still exactly one row
+    for `chunk-1` (no duplicate).
+  - `test_editing_source_doc_metadata_moves_chunk_to_new_group` — AC9:
+    edits `chunk-1`'s `sourceDoc` metadata value to a different existing
+    group's value, saves, and asserts the chunk now renders under the
+    `cardiac-protocol.md` group and no longer under `airway-protocol.md`.
+  - `test_cancel_discards_edit_and_leaves_original_text_and_sends_no_request`
+    — AC5: opens an edit form, types a change, clicks Cancel, asserts the
+    original text is still shown, the form is removed from the DOM
+    (focus-return path exercised), and — checked via a `page.on("request")`
+    listener rather than just visible text — that no POST/PUT/DELETE
+    request was ever sent to `/api/indexes/...`.
+  - `test_delete_chunk_removes_it_and_shows_toast_naming_it` — AC6: clicks
+    Delete on `chunk-2`, asserts the row is removed from the DOM and a
+    toast reading `Deleted chunk "chunk-2" (...)` appears.
+  - `test_delete_button_has_no_confirmation_dialog` — AC6's "no
+    confirmation dialog" explicit decision: registers a `page.on("dialog")`
+    listener that would catch and dismiss any native `confirm()`/`alert()`,
+    clicks Delete, and asserts no dialog ever fired while the delete still
+    completed.
+  - `test_save_failure_keeps_form_open_with_input_intact_and_shows_error`
+    — AC7: with the stub's mutation routes forced to return 500, submits
+    an add form and asserts the form is still open (not removed), the
+    typed id/text values are still present in the form fields, an inline
+    `.chunk-form-error` becomes visible, and the chunk never appears in
+    the group.
+  - `test_delete_failure_keeps_chunk_visible_and_shows_error` — AC8: with
+    mutations forced to 500, clicks Delete and asserts the chunk row is
+    still present and a `.toast-error` appears.
+  - `test_metadata_remove_button_is_keyboard_operable` — AC10 (partial):
+    tab-focuses a metadata row's "×" remove button and activates it with
+    `Enter`, asserting the row count drops by one. Full tab-order/focus
+    coverage across every control (e.g. focus landing correctly when a
+    form opens, "+ Add chunk"/"+ New Document"/Edit/Delete buttons
+    themselves) was not additionally tested with raw `Tab` key sequences —
+    flagged as a residual gap on AC10 beyond what the click-equivalent
+    interactions above already exercise (every control used above is a
+    real `<button>`, which is keyboard-activatable by default).
+
+### Pre-existing flake found (not from this story)
+
+While re-running `tests/e2e/test_manage_page.py` as the required
+regression check, `test_index_list_failure_shows_error_banner_with_retry`
+failed intermittently (roughly 1 in 5 runs observed; 4/5 and 5/5 seen
+across repeated runs) with:
+
+```
+AssertionError: assert False
+ +  where False = is_enabled()
+ +    where is_enabled = Locator(selector='#indexSelect').is_enabled
+```
+
+Root cause: that test calls `retry_button.click()` and then immediately
+asserts `banner.is_hidden()` / `select.is_enabled()` using Playwright's
+non-retrying `is_hidden()`/`is_enabled()` snapshot methods, instead of the
+auto-retrying `expect(...).to_be_hidden()`/`to_be_enabled()` assertions —
+so on a slow tick (retry's `fetch("/api/indexes")` not yet resolved when
+the assertion runs), the check reads stale DOM state and fails. This was
+confirmed to pre-exist this story's work: reproduced identically after
+`git stash`-ing every change made for MOS-STORY-001-004 (frontend's
+`manage.html`/`manage.js`/`style.css` diffs and this story's
+`conftest.py`/`test_manage_crud.py` additions), against the unmodified
+MOS-STORY-001-002 code, run in complete isolation. Per this story's scope
+("keeping the read-only tests in test_manage_page.py untouched"), this
+was not fixed here — it is surfaced for a follow-up fix to that test file
+(swap the two non-retrying assertions for `expect(...).to_be_hidden()`
+and `expect(...).to_be_enabled()`).
+
+### Flake fixed
+
+Swapped the two non-retrying assertions (`banner.is_hidden()`,
+`select.is_enabled()`) in `test_index_list_failure_shows_error_banner_with_retry`
+for `expect(banner).to_be_hidden()` / `expect(select).to_be_enabled()` /
+`expect(select.locator("option")).to_have_text(...)`, so the check waits
+for the DOM to settle after the retry's fetch resolves instead of reading
+a snapshot immediately after the click. Re-ran the previously-flaky test
+5 times in isolation (5/5 pass) and the full combined suite
+(`test_server.py` + `test_manage_page.py` + `test_manage_crud.py`) once
+more end to end: **36 passed, 0 failed**.
+
+**Verdict: PASS.** All required tests for this story's acceptance criteria
+(10/10 covered, 11 new tests) pass reliably, `test_server.py` regression
+is clean (20/20), and the previously-flaky unrelated test now passes
+deterministically too — no caveats remain. AC10 (keyboard operability) is
+only partially exercised via a dedicated test, since every interactive
+control here is a native `<button>` element, keyboard-operable without
+extra JS.
