@@ -56,3 +56,44 @@ tests passing, with no regression to the MOS-STORY-001-001 endpoint tests.
 
 Full detail, command output, and per-test AC mapping are in
 `test-results.md`'s `MOS-STORY-001-003` section. Overall verdict: PASS.
+
+## MOS-STORY-001-002: Chunk mutation endpoints + live-reload
+
+QA pass over the new `POST`/`PUT`/`DELETE /api/indexes/{name}/docs[/...]`
+endpoints and the shared `_reload_if_live` helper in `backend/server.py`.
+15 feature tests were appended to `backend/test_server.py` (no new unit
+or E2E layer required — see rationale below), covering all 7 acceptance
+criteria: successful add/update/delete and their response shapes;
+reload-on-mutation firing exactly once for both live-loaded index names
+across all three verbs, and explicitly *not* firing for any other index
+name; boundary validation (empty `id`, empty `text`, `metadata` as an
+array, `metadata` as a string, each rejected with 422 before `add_docs`
+is ever called); a mutation failure returning a safe 500 with the reload
+step skipped; and upsert-by-id semantics.
+
+The upsert-by-id test (AC7) needed more than the `SimpleNamespace` +
+`AsyncMock` pattern used everywhere else in this file, since proving
+"still only one chunk exists, now with updated text" requires the fake
+client to actually remember state across two calls. A small stateful fake
+(`_StatefulFakeMossClient`, a dict keyed by doc id backing `add_docs`/
+`get_docs`) was added for that one test so the assertion goes through the
+real `GET /api/indexes/{name}/docs` route rather than inspecting mock
+call arguments.
+
+No unit-test layer was added, for the same reason as
+MOS-STORY-001-001: these are thin route/orchestration handlers over the
+Moss SDK, and a unit test would just re-isolate the same conditional and
+object-construction logic the feature tests already exercise through the
+real routes. No new E2E layer was added either — this story has no new
+UI surface — but the existing MOS-STORY-001-003 E2E suite
+(`tests/e2e/test_manage_page.py`) was re-run in full as a regression
+check, since it drives `server.py`'s static/read routes in the same
+process this story's new mutation routes live in.
+
+All tests pass: `test_server.py` 20/20 (5 pre-existing + 15 new),
+`tests/e2e/test_manage_page.py` 5/5, no regressions. No implementation
+bugs were found in this story's code; nothing was surfaced back to
+`backend`.
+
+Full detail, exact commands, and per-test AC mapping are in
+`test-results.md`'s `MOS-STORY-001-002` section. Overall verdict: PASS.

@@ -60,6 +60,6 @@ cloud copy.
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

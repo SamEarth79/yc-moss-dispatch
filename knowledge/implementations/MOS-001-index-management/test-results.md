@@ -172,3 +172,91 @@ deprecation warning).
 "Ungrouped"-fallback test gap noted above remains open as a minor,
 non-blocking follow-up (both other precedence branches — `sourceDoc` and
 `type` — are covered).
+
+## MOS-STORY-001-002
+
+Commands:
+- `cd backend && uv run pytest test_server.py -v`
+- `cd backend && uv run pytest tests/e2e/test_manage_page.py -v --browser chromium`
+
+Results:
+- `test_server.py`: **20 passed, 0 failed** (5 pre-existing from
+  MOS-STORY-001-001 + 15 new for this story), 1 warning (the same
+  pre-existing, unrelated `anyio.abc.BlockingPortal` deprecation warning
+  from Starlette's `TestClient`).
+- `tests/e2e/test_manage_page.py`: **5 passed, 0 failed** — re-run
+  unchanged as a regression check, since this story edits `server.py`
+  (the same file the manage-page E2E suite exercises through its stub
+  app). No regression.
+
+### Layers
+
+- **Unit tests: none written.** Same rationale as MOS-STORY-001-001 —
+  `add_index_doc`/`update_index_doc`/`delete_index_doc`/`_reload_if_live`
+  are thin route/orchestration logic over the Moss SDK; a unit test would
+  isolate the same conditional (`name in LIVE_LOADED_INDEXES`) and
+  construction (`DocumentInfo(...)`) the feature tests below already
+  exercise through the real route. Feature-level tests are the sufficient
+  layer per `rules/testing.md`'s pass-through carve-out.
+- **Feature tests: 15 written, 15 passed**, appended to
+  `backend/test_server.py`, using Starlette's `TestClient` against the
+  real FastAPI app/routes with `server.moss_client` monkeypatched (no
+  real Moss credentials or network access). All 7 acceptance criteria are
+  covered:
+  - `test_add_index_doc_returns_id_and_calls_add_docs_with_matching_document`
+    — AC1 (200 + `{id}`, and `add_docs` called with a `DocumentInfo` whose
+    `id`/`text`/`metadata` match the request body — asserted field-by-field
+    since `DocumentInfo` has no `__eq__`).
+  - `test_update_index_doc_returns_id_on_success` — AC2.
+  - `test_delete_index_doc_returns_204_on_success` — AC3 (also asserts
+    `delete_docs` called with `(name, [doc_id])` and an empty response
+    body).
+  - `test_add_index_doc_reloads_live_index_when_name_is_protocol_index`,
+    `test_update_index_doc_reloads_live_index_when_name_is_live_data_index`,
+    `test_delete_index_doc_reloads_live_index_when_name_is_protocol_index`
+    — AC4, reload-on-mutation for both live-loaded index names across all
+    three verbs, using a fake `moss_client` with a `load_index` `AsyncMock`
+    asserted called exactly once with the mutated index's name.
+  - `test_add_index_doc_does_not_reload_when_index_is_not_live_loaded`,
+    `test_update_index_doc_does_not_reload_when_index_is_not_live_loaded`,
+    `test_delete_index_doc_does_not_reload_when_index_is_not_live_loaded`
+    — AC4's negative case: the same three verbs against an index name
+    that is neither `PROTOCOL_INDEX_NAME` nor `LIVE_DATA_INDEX_NAME` must
+    never call `load_index`.
+  - `test_add_index_doc_rejects_empty_id`,
+    `test_add_index_doc_rejects_empty_text`,
+    `test_add_index_doc_rejects_metadata_as_array`,
+    `test_add_index_doc_rejects_metadata_as_string` — AC5 (422 on each,
+    and `add_docs` never called).
+  - `test_add_index_doc_returns_500_without_leaking_details_and_skips_reload`
+    — AC6: `add_docs` raising is caught, returns 500 with a safe generic
+    message (the injected secret string is asserted absent from the
+    response body), and `load_index` is asserted never called — proving
+    the reload step is skipped, not merely unreached by coincidence.
+  - `test_add_index_doc_with_existing_id_upserts_in_place_instead_of_duplicating`
+    — AC7: uses a small stateful fake Moss client
+    (`_StatefulFakeMossClient`, a dict keyed by doc id, real feature-test
+    style rather than a memoryless mock) so the test can prove "still only
+    one chunk with this id" through the real `GET /api/indexes/{name}/docs`
+    route. Adds `id="x"` with `text="first version"`, confirms via GET
+    that exactly one chunk with id `x` exists with that text, then adds
+    the same `id="x"` again with `text="second version"` and confirms via
+    a second GET that there is still exactly one chunk with id `x`, now
+    holding the updated text (not two chunks).
+- **E2E tests: none newly required.** This story is backend-only — no new
+  UI surface — so per `rules/testing.md`'s E2E scoping ("not required for
+  purely internal/infra stories with no user-facing surface"), no new E2E
+  layer applies. The existing `tests/e2e/test_manage_page.py` suite from
+  MOS-STORY-001-003 was re-run in full as a regression check because it
+  exercises `server.py`'s static file serving and read routes through the
+  same process this story's mutation routes now also live in; all 5
+  still pass with no change in behavior.
+
+No new external-contract assumptions are introduced by this story (no new
+third-party wire format); the fake `moss_client` stand-ins mirror the same
+already-established pattern from MOS-STORY-001-001.
+
+**Verdict: PASS.** All required layers (feature tests) written and
+passing, full pre-existing suite (unit/feature: `test_server.py`; E2E:
+`test_manage_page.py`) green with no regressions. No implementation
+issues found — nothing surfaced back to `backend`.

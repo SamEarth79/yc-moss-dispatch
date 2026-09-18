@@ -8,7 +8,7 @@
       "stories": {
         "MOS-STORY-001-001": { "status": "committed", "step": null, "commit": "b59474e" },
         "MOS-STORY-001-002": { "status": "pending", "step": null, "commit": null },
-        "MOS-STORY-001-003": { "status": "pending", "step": null, "commit": null },
+        "MOS-STORY-001-003": { "status": "committed", "step": null, "commit": "52099da" },
         "MOS-STORY-001-004": { "status": "pending", "step": null, "commit": null }
       },
       "pr": { "number": null, "url": null, "state": "none", "reviewCycles": 0 },
