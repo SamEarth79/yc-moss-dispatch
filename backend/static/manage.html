@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Manage Indexes — Dispatch Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Index Management</h1>
+    <nav class="header-nav">
+      <a class="nav-link" href="/">Dispatch Copilot</a>
+    </nav>
+  </header>
+
+  <main class="manage-main">
+    <section class="panel index-select-bar">
+      <label for="indexSelect" class="index-select-label">Index</label>
+      <select id="indexSelect" class="caller-select" disabled></select>
+      <span id="indexCountBadge" class="badge"></span>
+    </section>
+
+    <div id="errorBanner" class="error-banner" hidden>
+      <span id="errorBannerText"></span>
+      <button id="retryButton" class="action-button none" type="button">Retry</button>
+    </div>
+
+    <section id="docsArea" class="docs-area"></section>
+  </main>
+
+  <script src="manage.js"></script>
+</body>
+</html>
