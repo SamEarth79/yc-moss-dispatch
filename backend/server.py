@@ -12,7 +12,7 @@ Both Moss indexes are loaded once at server startup, same "load once, query many
 locally" pattern as everywhere else in backend/.
 
 Transcript updates are handled by a dedicated worker that only ever acts on the LATEST
-transcript, not a queue of every debounced keystroke: DeepSeek extraction is much slower
+transcript, not a queue of every debounced keystroke: LLM extraction is much slower
 than Moss's sub-10ms retrieval, so processing every message in strict order would mean
 the panel keeps changing for seconds after the user stops typing, replaying stale
 intermediate states. See transcript_worker below.
@@ -20,6 +20,7 @@ intermediate states. See transcript_worker below.
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import random
@@ -37,7 +38,8 @@ from starlette.websockets import WebSocketState
 
 from live_panel import LIVE_DATA_INDEX_NAME, PROTOCOL_INDEX_NAME, WINDOW_WORDS, trailing_window
 from query_nearest_facility import haversine_miles, nearest_facility
-from structured_extraction import extract_structured_fields
+from voice_stream import DeepgramStream, VoiceStreamUnavailable
+from structured_extraction import extract_llm_fields, extract_rule_fields
 
 NEAREST_FACILITIES_SHOWN = 3
 
@@ -128,7 +130,7 @@ app = FastAPI(lifespan=lifespan)
 
 
 async def safe_send_json(websocket: WebSocket, payload: dict, send_lock: asyncio.Lock):
-    """A slow in-flight call (DeepSeek, Nominatim, Moss) can finish after the client has
+    """A slow in-flight call (LLM, Moss) can finish after the client has
     already disconnected — send_json would otherwise raise. send_lock also serializes
     sends across the transcript worker, the unit-status ticker, and the main message
     loop, since Starlette doesn't allow concurrent sends on one WebSocket."""
@@ -249,50 +251,63 @@ async def timed(coro):
     return value, (time.monotonic() - start) * 1000
 
 
+async def run_llm_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text: str, rule_fields: dict, llm_state: dict):
+    llm_fields, extraction_ms = await timed(extract_llm_fields(text))
+    if llm_fields is None:
+        summary = "skipped — LLM not configured"
+    else:
+        llm_state["fields"] = llm_fields
+        summary = ", ".join(f"{k}={v}" for k, v in llm_fields.items() if v not in (None, "")) or "no fields extracted"
+    await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)
+    await safe_send_json(websocket, dev_log_payload("llm", "extraction", extraction_ms, summary), send_lock)
+
+
 async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, latest: dict, ready: asyncio.Event):
     """Waits for a transcript to process, always picking up whatever is CURRENTLY the
-    latest one when it becomes free — not a FIFO queue. If several keystrokes arrived
-    while a previous (slow) extraction call was in flight, all but the newest are
-    dropped here rather than being processed one by one after the fact."""
-    while True:
-        await ready.wait()
-        ready.clear()
-        text = latest["text"]
-        if not text:
-            continue
+    latest one when it becomes free — not a FIFO queue. Rule fields and the Moss query
+    answer immediately; the slow local-LLM call runs in the background and is cancelled
+    when a newer transcript arrives, so stale results never overwrite fresh ones."""
+    llm_state = {"fields": {"whatHappened": None, "injuries": None}, "task": None}
+    try:
+        while True:
+            await ready.wait()
+            ready.clear()
+            text = latest["text"]
+            if not text:
+                continue
 
-        query_text = trailing_window(text, WINDOW_WORDS)
-        protocol_task = moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1))
-        extraction_task = timed(extract_structured_fields(text))
-        result, (fields, extraction_ms) = await asyncio.gather(protocol_task, extraction_task)
-        top = result.docs[0]
+            if llm_state["task"] is not None:
+                llm_state["task"].cancel()
 
-        await safe_send_json(
-            websocket,
-            {
-                "type": "protocol_update",
-                "transcript": text,
-                "latencyMs": result.time_taken_ms,
-                "matchId": top.id,
-                "matchText": top.text,
-                "priority": top.metadata.get("priority"),
-                "suggestedAction": top.metadata.get("suggestedAction"),
-            },
-            send_lock,
-        )
-        await safe_send_json(
-            websocket,
-            dev_log_payload("moss", "protocol-query", result.time_taken_ms, f'"{query_text}" → {top.id} ({top.score:.2f})'),
-            send_lock,
-        )
+            query_text = trailing_window(text, WINDOW_WORDS)
+            result = await moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1))
+            top = result.docs[0]
 
-        await safe_send_json(websocket, {"type": "extraction_update", "fields": fields}, send_lock)
-        if fields is None:
-            extraction_summary = "skipped — DEEPSEEK_API_KEY not set"
-        else:
-            set_fields = [f"{k}={v}" for k, v in fields.items() if v not in (None, "")]
-            extraction_summary = ", ".join(set_fields[:3]) or "no fields extracted"
-        await safe_send_json(websocket, dev_log_payload("deepseek", "extraction", extraction_ms, extraction_summary), send_lock)
+            await safe_send_json(
+                websocket,
+                {
+                    "type": "protocol_update",
+                    "transcript": text,
+                    "latencyMs": result.time_taken_ms,
+                    "matchId": top.id,
+                    "matchText": top.text,
+                    "priority": top.metadata.get("priority"),
+                    "suggestedAction": top.metadata.get("suggestedAction"),
+                },
+                send_lock,
+            )
+            await safe_send_json(
+                websocket,
+                dev_log_payload("moss", "protocol-query", result.time_taken_ms, f'"{query_text}" → {top.id} ({top.score:.2f})'),
+                send_lock,
+            )
+
+            rule_fields = extract_rule_fields(text)
+            await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)
+            llm_state["task"] = asyncio.create_task(run_llm_extraction(websocket, send_lock, text, rule_fields, llm_state))
+    finally:
+        if llm_state["task"] is not None:
+            llm_state["task"].cancel()
 
 
 @app.websocket("/ws")
@@ -308,9 +323,42 @@ async def ws_session(websocket: WebSocket):
     transcript_ready = asyncio.Event()
     worker_task = asyncio.create_task(transcript_worker(websocket, send_lock, latest_transcript, transcript_ready))
 
+    voice = {"stream": None}
+
+    async def handle_voice_transcript(full_text: str, is_final: bool):
+        latest_transcript["text"] = full_text
+        transcript_ready.set()
+        await safe_send_json(websocket, {"type": "voice_transcript", "text": full_text}, send_lock)
+        if is_final:
+            await safe_send_json(websocket, dev_log_payload("asr", "final-phrase", None, f'"{full_text[-60:]}"'), send_lock)
+
     try:
         while True:
-            msg = await websocket.receive_json()
+            frame = await websocket.receive()
+            if frame["type"] == "websocket.disconnect":
+                break
+            if frame.get("bytes") is not None:
+                if voice["stream"] is not None:
+                    await voice["stream"].send_audio(frame["bytes"])
+                continue
+            msg = json.loads(frame["text"])
+
+            if msg["type"] == "voice_start":
+                stream = DeepgramStream(handle_voice_transcript)
+                try:
+                    await stream.start()
+                except VoiceStreamUnavailable as exc:
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": str(exc)}, send_lock)
+                    continue
+                voice["stream"] = stream
+                await safe_send_json(websocket, {"type": "voice_status", "state": "listening"}, send_lock)
+                await safe_send_json(websocket, dev_log_payload("asr", "stream-open", None, "live speech-to-text connected"), send_lock)
+
+            elif msg["type"] == "voice_stop":
+                if voice["stream"] is not None:
+                    await voice["stream"].stop()
+                    voice["stream"] = None
+                await safe_send_json(websocket, {"type": "voice_status", "state": "stopped"}, send_lock)
 
             if msg["type"] == "set_caller":
                 address = msg["address"]
@@ -343,6 +391,8 @@ async def ws_session(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        if voice["stream"] is not None:
+            await voice["stream"].stop()
         status_task.cancel()
         worker_task.cancel()
 

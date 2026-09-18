@@ -20,6 +20,13 @@
   </header>
 
   <main class="manage-main">
+    <section class="panel data-map-panel">
+      <h2>Data Map <span class="dev-feed-hint">what the copilot retrieves from — drag to rotate</span></h2>
+      <div id="dataMapStage" class="data-map-stage" aria-label="Diagram: Dispatch Copilot connected to protocol chunks, past incidents and facilities">
+        <svg id="dataMapLines" class="data-map-lines" aria-hidden="true"></svg>
+      </div>
+    </section>
+
     <section class="panel index-select-bar">
       <label for="indexSelect" class="index-select-label">Index</label>
       <select id="indexSelect" class="caller-select" disabled></select>
@@ -41,5 +48,6 @@
   <div id="liveRegion" aria-live="polite" class="visually-hidden"></div>
 
   <script src="manage.js"></script>
+  <script src="data-map.js"></script>
 </body>
 </html>

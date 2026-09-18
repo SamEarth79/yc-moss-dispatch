@@ -2,7 +2,6 @@ const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const clockEl = document.getElementById("clock");
 const transcriptInput = document.getElementById("transcriptInput");
-const latencyEl = document.getElementById("latency");
 const extractionFields = document.getElementById("extractionFields");
 const priorityBadge = document.getElementById("priorityBadge");
 const instructionText = document.getElementById("instructionText");
@@ -12,8 +11,10 @@ const resolvedAddress = document.getElementById("resolvedAddress");
 const incidentsHeading = document.getElementById("incidentsHeading");
 const incidentList = document.getElementById("incidentList");
 const facilityList = document.getElementById("facilityList");
-const unitList = document.getElementById("unitList");
 const devFeed = document.getElementById("devFeed");
+const micButton = document.getElementById("micButton");
+const sampleButton = document.getElementById("sampleButton");
+const voiceStatus = document.getElementById("voiceStatus");
 
 const DEV_FEED_MAX_ENTRIES = 40;
 
@@ -136,7 +137,7 @@ function renderExtraction(fields) {
   extractionFields.innerHTML = "";
 
   if (!fields) {
-    extractionFields.innerHTML = '<div class="extraction-empty">DEEPSEEK_API_KEY not set — extraction skipped.</div>';
+    extractionFields.innerHTML = '<div class="extraction-empty">LLM unavailable — extraction skipped.</div>';
     return;
   }
 
@@ -152,13 +153,24 @@ function renderExtraction(fields) {
   extractionFields.appendChild(makeRow("Injuries", fields.injuries, injuriesSeverity(fields.injuries)));
 }
 
+function renderInstructionSteps(text) {
+  const steps = text.split(/(?<=[.!?])\s+(?=[A-Z"])/).map((s) => s.trim()).filter(Boolean);
+  const list = document.createElement("ul");
+  list.className = "instruction-steps";
+  for (const step of steps) {
+    const li = document.createElement("li");
+    li.textContent = step;
+    list.appendChild(li);
+  }
+  instructionText.replaceChildren(list);
+}
+
 function renderProtocolUpdate(msg) {
-  latencyEl.textContent = `${msg.latencyMs}ms`;
 
   priorityBadge.textContent = msg.priority ?? "—";
   priorityBadge.className = "badge " + priorityClass(msg.priority);
 
-  instructionText.textContent = msg.matchText;
+  renderInstructionSteps(msg.matchText);
   currentSuggestedAction = msg.suggestedAction;
   renderActionButton();
 }
@@ -187,18 +199,6 @@ function renderActionButton() {
 }
 
 function renderUnitStatus(msg) {
-  unitList.innerHTML = "";
-  for (const unit of msg.units) {
-    const li = document.createElement("li");
-    const statusLabel = unit.status === "en route" && unit.eta != null ? `en route (${unit.eta}m)` : unit.status;
-    li.innerHTML = `
-      <span class="unit-id">${unit.id}</span>
-      <span class="unit-type">${unit.type}</span>
-      <span class="unit-status ${unit.status.replace(" ", "-")}">${statusLabel}</span>
-    `;
-    unitList.appendChild(li);
-  }
-
   if (msg.assignedUnit) {
     const btn = actionRow.querySelector("button.action-button");
     if (btn) {
@@ -282,6 +282,10 @@ function connect() {
       renderUnitStatus(msg);
     } else if (msg.type === "dev_log") {
       renderDevLog(msg);
+    } else if (msg.type === "voice_transcript") {
+      transcriptInput.value = msg.text;
+    } else if (msg.type === "voice_status") {
+      handleVoiceStatus(msg);
     }
   };
 
@@ -301,6 +305,137 @@ function tickClock() {
     hour12: false,
   });
 }
+
+const SAMPLE_CALL_URL = "samples/sample-call.wav";
+const AUDIO_CHUNK_BYTES = 3200;
+const AUDIO_CHUNK_MS = 100;
+
+let stopActiveVoice = null;
+let voiceReadyResolver = null;
+
+function setVoiceStatus(text, isError = false) {
+  voiceStatus.textContent = text;
+  voiceStatus.className = "voice-status" + (isError ? " error" : "");
+}
+
+function handleVoiceStatus(msg) {
+  if (msg.state === "listening" && voiceReadyResolver) {
+    voiceReadyResolver(true);
+  } else if (msg.state === "unavailable") {
+    setVoiceStatus(msg.reason, true);
+    if (voiceReadyResolver) voiceReadyResolver(false);
+  }
+}
+
+async function beginVoiceSession() {
+  const ready = new Promise((resolve) => {
+    voiceReadyResolver = resolve;
+  });
+  transcriptInput.value = "";
+  ws.send(JSON.stringify({ type: "voice_start" }));
+  const ok = await ready;
+  voiceReadyResolver = null;
+  return ok;
+}
+
+function endVoiceSession() {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "voice_stop" }));
+  stopActiveVoice = null;
+  micButton.classList.remove("active");
+  micButton.textContent = "Start mic";
+  sampleButton.classList.remove("active");
+  sampleButton.textContent = "Play sample call";
+  micButton.disabled = false;
+  sampleButton.disabled = false;
+  setVoiceStatus("");
+}
+
+async function startMic() {
+  micButton.disabled = true;
+  sampleButton.disabled = true;
+  let mediaStream;
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  } catch {
+    setVoiceStatus("Microphone access was denied", true);
+    micButton.disabled = false;
+    sampleButton.disabled = false;
+    return;
+  }
+  if (!(await beginVoiceSession())) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    micButton.disabled = false;
+    sampleButton.disabled = false;
+    return;
+  }
+
+  const audioContext = new AudioContext({ sampleRate: 16000 });
+  await audioContext.audioWorklet.addModule("pcm-worklet.js");
+  const source = audioContext.createMediaStreamSource(mediaStream);
+  const worklet = new AudioWorkletNode(audioContext, "pcm-processor");
+  worklet.port.onmessage = (event) => ws.send(event.data);
+  source.connect(worklet);
+
+  stopActiveVoice = () => {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    audioContext.close();
+    endVoiceSession();
+  };
+  micButton.disabled = false;
+  micButton.classList.add("active");
+  micButton.textContent = "Stop mic";
+  setVoiceStatus("Listening…");
+}
+
+function findWavPcmData(buffer) {
+  const view = new DataView(buffer);
+  let offset = 12;
+  while (offset + 8 <= view.byteLength) {
+    const chunkId = String.fromCharCode(...new Uint8Array(buffer, offset, 4));
+    const chunkSize = view.getUint32(offset + 4, true);
+    if (chunkId === "data") return new Uint8Array(buffer, offset + 8, Math.min(chunkSize, view.byteLength - offset - 8));
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  throw new Error("WAV data chunk not found");
+}
+
+async function startSample() {
+  micButton.disabled = true;
+  sampleButton.disabled = true;
+  const wavBuffer = await (await fetch(SAMPLE_CALL_URL)).arrayBuffer();
+  const pcm = findWavPcmData(wavBuffer);
+  if (!(await beginVoiceSession())) {
+    micButton.disabled = false;
+    sampleButton.disabled = false;
+    return;
+  }
+
+  const audio = new Audio(SAMPLE_CALL_URL);
+  audio.play();
+  let position = 0;
+  const timer = setInterval(() => {
+    if (position >= pcm.length) {
+      clearInterval(timer);
+      setTimeout(() => stopActiveVoice && stopActiveVoice(), 1500);
+      return;
+    }
+    ws.send(pcm.slice(position, position + AUDIO_CHUNK_BYTES));
+    position += AUDIO_CHUNK_BYTES;
+  }, AUDIO_CHUNK_MS);
+
+  stopActiveVoice = () => {
+    clearInterval(timer);
+    audio.pause();
+    endVoiceSession();
+  };
+  sampleButton.disabled = false;
+  sampleButton.classList.add("active");
+  sampleButton.textContent = "Stop sample";
+  setVoiceStatus("Playing sample call…");
+}
+
+micButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startMic());
+sampleButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startSample());
 
 setupCallerSelect();
 transcriptInput.addEventListener("input", (e) => sendTranscript(e.target.value));

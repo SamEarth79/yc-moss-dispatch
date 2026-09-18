@@ -32,20 +32,22 @@
       <p id="resolvedAddress" class="resolved-address"></p>
 
       <h2 class="section-gap">Caller Transcript</h2>
+      <div class="voice-controls">
+        <button id="micButton" class="voice-button" type="button">Start mic</button>
+        <button id="sampleButton" class="voice-button" type="button">Play sample call</button>
+      </div>
+      <p id="voiceStatus" class="voice-status"></p>
       <textarea
         id="transcriptInput"
         class="transcript-input"
         rows="4"
         placeholder="Type what the caller is saying, as if it were arriving live from ASR…"
       ></textarea>
-      <div class="latency-row">
-        <span class="latency-label">Retrieval latency</span>
-        <span id="latency" class="latency-value">—</span>
-      </div>
     </section>
 
     <div class="middle-column">
       <section class="panel summary-panel">
+        <span class="source-tag source-tag--llm">LLM generated</span>
         <h2>Structured Summary</h2>
         <div id="extractionFields" class="extraction-grid">
           <div class="extraction-empty">Waiting for transcript…</div>
@@ -53,31 +55,29 @@
       </section>
 
       <section class="panel instruction-panel">
+        <span class="source-tag source-tag--moss">Moss retrieved</span>
         <h2>Instruction</h2>
         <div id="priorityBadge" class="badge">—</div>
-        <p id="instructionText" class="instruction-text">Start typing above to see live guidance…</p>
+        <div id="instructionText" class="instruction-text"><p class="instruction-placeholder">Start typing above to see live guidance…</p></div>
         <div id="actionRow" class="action-row"></div>
       </section>
     </div>
 
     <aside class="sidebar">
       <section class="panel context-panel">
+        <span class="source-tag source-tag--moss">Moss retrieved</span>
         <h2 id="incidentsHeading">Past Incidents</h2>
         <div id="incidentList" class="incident-cards"></div>
 
-        <h3>Nearest Facilities</h3>
+        <h3 class="heading-with-tag">Nearest Facilities <span class="source-tag source-tag--moss source-tag--inline">Moss retrieved</span></h3>
         <div id="facilityList" class="facility-cards"></div>
       </section>
 
-      <section class="panel unit-panel">
-        <h2>Unit Status</h2>
-        <ul id="unitList" class="unit-list"></ul>
-      </section>
     </aside>
   </main>
 
   <section class="panel dev-feed-panel">
-    <h2>Developer Feed <span class="dev-feed-hint">live calls to Moss &amp; DeepSeek</span></h2>
+    <h2>Developer Feed <span class="dev-feed-hint">live calls to Moss &amp; LLM</span></h2>
     <div id="devFeed" class="dev-feed">
       <div class="extraction-empty">No calls yet…</div>
     </div>

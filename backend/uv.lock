@@ -43,6 +43,7 @@ dependencies = [
     { name = "openai" },
     { name = "python-dotenv" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -59,6 +60,7 @@ requires-dist = [
     { name = "openai", specifier = ">=3.15.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.53.0" },
+    { name = "websockets", specifier = ">=17.1" },
 ]
 
 [package.metadata.requires-dev]
