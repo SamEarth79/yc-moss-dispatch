@@ -262,7 +262,8 @@ const sendTranscript = debounce((text) => {
 }, DEBOUNCE_MS);
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${scheme}://${location.host}/ws`);
 
   ws.onopen = () => {
     statusDot.className = "dot connected";
