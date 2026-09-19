@@ -1,8 +1,8 @@
 """
 Structured field extraction (#5), split by speed:
-- rule fields (patients, consciousness, weapons) come from keyword rules in under 1ms —
-  these drive the color-coded tiles, where a small LLM was slow and made mistakes;
-- LLM fields (headline, injuries) come from DeepSeek (OpenAI-SDK-compatible). Requires
+- rule fields (patients, consciousness, weapons, departments) come from keyword rules in
+  under 1ms — a small LLM was slow and made mistakes on these;
+- LLM field (one-line summary of what happened) come from DeepSeek (OpenAI-SDK-compatible). Requires
   DEEPSEEK_API_KEY in .env; returns None when it's missing so the rest of the app still runs.
 """
 
@@ -29,6 +29,18 @@ UNCONSCIOUS_PATTERN = re.compile(
 )
 CONSCIOUS_PATTERN = re.compile(
     r"\b(awake|conscious|talking|responsive|breathing|speaking|can speak|alert|answering)\b"
+)
+POLICE_PATTERN = re.compile(
+    r"\b(fight|fighting|assault\w*|attack\w*|robbery|robbed|burglar\w*|break-in|shooting|shot|stabb\w*|"
+    r"threat\w*|domestic|suspect|violent|gun|knife|weapon)\b"
+)
+EMS_PATTERN = re.compile(
+    r"\b(injur\w*|hurt|bleeding|blood|unconscious|unresponsive|not breathing|choking|chest pain|heart|"
+    r"seizure|overdose|dizzy|faint\w*|collapsed|down on the ground|not answering|pregnan\w*|labor|"
+    r"allergic|stroke|shot|stabb\w*|burned|burns)\b"
+)
+FIRE_PATTERN = re.compile(
+    r"\b(fire|smoke|flames|burning|gas leak|smell gas|explosion|carbon monoxide|trapped)\b"
 )
 NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "2": 2, "3": 3, "4": 4, "5": 5}
 MULTI_PATIENT_PATTERN = re.compile(
@@ -71,16 +83,23 @@ def extract_rule_fields(transcript: str) -> dict:
     else:
         patients = None
 
-    return {"numberOfPatients": patients, "consciousness": consciousness, "weapons": weapons}
+    departments = []
+    if weapons or POLICE_PATTERN.search(text):
+        departments.append("Police")
+    if consciousness == "unconscious" or EMS_PATTERN.search(text):
+        departments.append("Emergency Medical")
+    if FIRE_PATTERN.search(text):
+        departments.append("Fire")
+
+    return {"numberOfPatients": patients, "consciousness": consciousness, "weapons": weapons, "departments": departments}
 
 
-SYSTEM_PROMPT = """You label a live 911 call transcript for a dispatcher's screen. The transcript \
-may be partial. Respond in JSON only, with two fields:
-- whatHappened: 2-4 word incident label (e.g. "stabbing", "choking", "fight"), or null.
-- injuries: short phrase listing injuries mentioned, or null.
+SYSTEM_PROMPT = """You summarize a live 911 call transcript for a dispatcher's screen. The transcript \
+may be partial. Respond in JSON only, with one field:
+- whatHappened: a one-line summary of the incident, at most 12 words, or null if unclear.
 
 EXAMPLE INPUT: my dad is choking on food he can't speak and he's turning blue
-EXAMPLE JSON OUTPUT: {"whatHappened": "choking", "injuries": null}"""
+EXAMPLE JSON OUTPUT: {"whatHappened": "Man choking on food, unable to speak, turning blue"}"""
 
 _client: AsyncOpenAI | None = None
 

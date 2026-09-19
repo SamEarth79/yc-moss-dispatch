@@ -94,10 +94,8 @@ function isEmpty(value) {
 }
 
 function consciousnessSeverity(value) {
-  if (isEmpty(value)) return "neutral";
-  const v = String(value).toLowerCase();
-  if (v.includes("unconscious") || v.includes("unresponsive")) return "critical";
-  if (v.includes("conscious")) return "ok";
+  if (value === "unconscious") return "critical";
+  if (value === "conscious") return "ok";
   return "neutral";
 }
 
@@ -108,49 +106,33 @@ function weaponsSeverity(value) {
 }
 
 function patientsSeverity(value) {
-  if (typeof value === "number" && value > 1) return "warn";
-  return "neutral";
-}
-
-function injuriesSeverity(value) {
-  return isEmpty(value) ? "neutral" : "warn";
-}
-
-function makeTile(label, value, severity) {
-  const tile = document.createElement("div");
-  tile.className = `ex-tile ex-tile--${severity}`;
-  tile.innerHTML = `
-    <span class="ex-label">${label}</span>
-    <span class="ex-value">${isEmpty(value) ? "—" : String(value)}</span>
-  `;
-  return tile;
+  return typeof value === "number" && value > 1 ? "warn" : "neutral";
 }
 
 function makeRow(label, value, severity) {
   const row = document.createElement("div");
-  row.className = `ex-row ex-row--${severity}`;
-  row.innerHTML = `<span class="ex-row-label">${label}</span><span class="ex-row-value">${isEmpty(value) ? "—" : String(value)}</span>`;
+  row.className = `kv-row kv-row--${severity}`;
+  row.innerHTML = `<span class="kv-key">${label}</span><span class="kv-value">${isEmpty(value) ? "—" : String(value)}</span>`;
   return row;
 }
 
+function yesNo(value, yesWhen) {
+  return value === yesWhen ? "Yes" : value === null || value === undefined ? null : "No";
+}
+
+let latestFields = {};
+
 function renderExtraction(fields) {
+  latestFields = fields;
   extractionFields.innerHTML = "";
 
-  if (!fields) {
-    extractionFields.innerHTML = '<div class="extraction-empty">LLM unavailable — extraction skipped.</div>';
-    return;
-  }
-
-  const headline = document.createElement("div");
-  headline.className = "ex-headline";
-  headline.textContent = isEmpty(fields.whatHappened) ? "Awaiting details…" : fields.whatHappened;
-  extractionFields.appendChild(headline);
-
-  extractionFields.appendChild(makeTile("# of Patients", fields.numberOfPatients, patientsSeverity(fields.numberOfPatients)));
-  extractionFields.appendChild(makeTile("Consciousness", fields.consciousness, consciousnessSeverity(fields.consciousness)));
-  extractionFields.appendChild(makeTile("Weapons", fields.weapons === true ? "Yes" : fields.weapons === false ? "No" : null, weaponsSeverity(fields.weapons)));
-
-  extractionFields.appendChild(makeRow("Injuries", fields.injuries, injuriesSeverity(fields.injuries)));
+  const departments = fields.departments ?? [];
+  extractionFields.appendChild(makeRow("What", fields.whatHappened, "neutral"));
+  extractionFields.appendChild(makeRow("Where", callerSelect.value, "neutral"));
+  extractionFields.appendChild(makeRow("Department", departments.join(", "), "neutral"));
+  extractionFields.appendChild(makeRow("Patients", fields.numberOfPatients, patientsSeverity(fields.numberOfPatients)));
+  extractionFields.appendChild(makeRow("Weapons", yesNo(fields.weapons, true), weaponsSeverity(fields.weapons)));
+  extractionFields.appendChild(makeRow("Conscious", yesNo(fields.consciousness, "conscious"), consciousnessSeverity(fields.consciousness)));
 }
 
 function renderInstructionSteps(text) {
@@ -243,6 +225,7 @@ function setupCallerSelect() {
     callerSelect.appendChild(opt);
   }
   callerSelect.onchange = () => {
+    renderExtraction(latestFields);
     ws.send(JSON.stringify({ type: "set_caller", address: callerSelect.value }));
   };
 }
@@ -439,6 +422,7 @@ micButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startMic());
 sampleButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startSample());
 
 setupCallerSelect();
+renderExtraction({});
 transcriptInput.addEventListener("input", (e) => sendTranscript(e.target.value));
 tickClock();
 setInterval(tickClock, 1000);

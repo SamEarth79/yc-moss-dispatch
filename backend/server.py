@@ -269,7 +269,7 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
     latest one when it becomes free — not a FIFO queue. Rule fields and the Moss query
     answer immediately; the slow local-LLM call runs in the background and is cancelled
     when a newer transcript arrives, so stale results never overwrite fresh ones."""
-    llm_state = {"fields": {"whatHappened": None, "injuries": None}, "task": None}
+    llm_state = {"fields": {"whatHappened": None}, "task": None}
     try:
         while True:
             await ready.wait()

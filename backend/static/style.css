@@ -347,92 +347,48 @@ button.action-button:disabled {
   border: 1px solid var(--color-graphite);
 }
 
-.extraction-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+.kv-list {
+  display: flex;
+  flex-direction: column;
 }
 
-.ex-headline {
-  grid-column: 1 / -1;
-  font-size: 22px;
-  font-weight: var(--font-weight-w590);
-  letter-spacing: -0.012em;
-  text-transform: uppercase;
-  color: var(--color-paper);
-  padding-bottom: 12px;
-  margin-bottom: 2px;
+.kv-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 0;
   border-bottom: 0.5px solid var(--color-graphite);
 }
 
-.ex-tile {
-  border-radius: var(--radius-inputs);
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.kv-row:last-child {
+  border-bottom: none;
 }
 
-.ex-tile .ex-label {
-  display: block;
-  font-size: 11px;
+.kv-key {
+  font-size: 12px;
   font-weight: var(--font-weight-w510);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-fog);
-  margin-bottom: 4px;
 }
 
-.ex-tile .ex-value {
-  font-size: 17px;
+.kv-value {
+  font-size: 16px;
   font-weight: var(--font-weight-w590);
-  color: var(--color-mist);
+  color: var(--color-paper);
 }
 
-.ex-tile--critical {
-  background: rgba(235, 87, 87, 0.14);
-  border-color: rgba(235, 87, 87, 0.4);
-}
-.ex-tile--critical .ex-value {
+.kv-row--critical .kv-value {
   color: var(--color-coral-red);
 }
 
-.ex-tile--ok {
-  background: rgba(39, 166, 68, 0.12);
-  border-color: rgba(39, 166, 68, 0.35);
-}
-.ex-tile--ok .ex-value {
+.kv-row--ok .kv-value {
   color: var(--color-pulse-green);
 }
 
-.ex-tile--warn {
-  background: rgba(2, 184, 204, 0.12);
-  border-color: rgba(2, 184, 204, 0.35);
-}
-.ex-tile--warn .ex-value {
+.kv-row--warn .kv-value {
   color: var(--color-signal-teal);
-}
-
-.ex-row {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: 8px;
-  font-size: 14px;
-  padding: 2px 0;
-}
-
-.ex-row-label {
-  color: var(--color-fog);
-  min-width: 70px;
-  flex-shrink: 0;
-}
-
-.ex-row-value {
-  color: var(--color-mist);
-}
-
-.ex-row--warn .ex-row-value {
-  color: var(--color-signal-teal);
-  font-weight: var(--font-weight-w510);
 }
 
 .extraction-empty {

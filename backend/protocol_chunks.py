@@ -47,7 +47,6 @@ PROTOCOL_CHUNKS = [
             "suggestedAction": "dispatch-EMS-ambulance",
             "sourceDoc": "data/docs/medical/choking-adult-child-medlineplus.md",
             "stepOrder": "2",
-            "nextChunkId": "choking-adult-3-unconscious",
         },
     },
     {
@@ -67,27 +66,6 @@ PROTOCOL_CHUNKS = [
             "suggestedAction": "dispatch-EMS-ambulance",
             "sourceDoc": "data/docs/medical/choking-adult-child-medlineplus.md",
             "stepOrder": "2b",
-        },
-    },
-    {
-        "id": "choking-adult-3-unconscious",
-        "text": (
-            "If the person faints or loses consciousness: shout for help and have someone call "
-            "911. Carefully place the person on a firm, flat surface and begin CPR. Check for a "
-            "visible object in the mouth before giving breaths — if you can see it, remove it, "
-            "but do not blindly sweep the mouth. Chest compressions may help dislodge the object. "
-            "Continue CPR and rechecking the mouth until medical help arrives or the person starts "
-            "breathing on their own."
-        ),
-        "metadata": {
-            "protocolType": "choking",
-            "ageGroup": "adult",
-            "severityStage": "unconscious",
-            "priority": "P1-critical",
-            "suggestedAction": "dispatch-EMS-ambulance",
-            "sourceDoc": "data/docs/medical/choking-adult-child-medlineplus.md",
-            "stepOrder": "3",
-            "nextChunkId": "cpr-adult-4-compressions",
         },
     },
     {
