@@ -38,6 +38,7 @@ from starlette.websockets import WebSocketState
 
 from live_panel import LIVE_DATA_INDEX_NAME, PROTOCOL_INDEX_NAME, WINDOW_WORDS, trailing_window
 from query_nearest_facility import haversine_miles, nearest_facility
+from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
 from structured_extraction import extract_llm_fields, extract_rule_fields
 
@@ -108,7 +109,7 @@ async def lifespan(app: FastAPI):
     # load if the cloud copy hasn't changed — every dev-server restart otherwise
     # re-downloads both indexes from Moss Cloud for free, which is exactly what
     # burned this project's usage credits during today's restart-heavy debugging.
-    cache_path = str(Path(__file__).resolve().parent / ".moss-cache")
+    cache_path = os.getenv("MOSS_CACHE_DIR") or str(Path(__file__).resolve().parent / ".moss-cache")
     index_names = [PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME]
     result = await moss_client.load_indexes(index_names, cache_path=cache_path)
     if result.failed:
@@ -127,6 +128,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(BasicAuthMiddleware)
 
 
 async def safe_send_json(websocket: WebSocket, payload: dict, send_lock: asyncio.Lock):
