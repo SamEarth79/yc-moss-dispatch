@@ -82,24 +82,6 @@ PROTOCOL_CHUNKS = [
             "suggestedAction": "none",
             "sourceDoc": "data/docs/medical/cpr-adult-medlineplus.md",
             "stepOrder": "1",
-            "nextChunkId": "cpr-adult-2-call-911",
-        },
-    },
-    {
-        "id": "cpr-adult-2-call-911",
-        "text": (
-            "If there is no response, call 911 or the local emergency number immediately and "
-            "shout for help. If an AED is known to be nearby, send someone to retrieve it — do "
-            "not leave the person to search for one if you don't know it's nearby."
-        ),
-        "metadata": {
-            "protocolType": "cardiac-arrest",
-            "ageGroup": "adult",
-            "severityStage": "unresponsive",
-            "priority": "P1-critical",
-            "suggestedAction": "dispatch-EMS-ambulance",
-            "sourceDoc": "data/docs/medical/cpr-adult-medlineplus.md",
-            "stepOrder": "2",
             "nextChunkId": "cpr-adult-3-position",
         },
     },
