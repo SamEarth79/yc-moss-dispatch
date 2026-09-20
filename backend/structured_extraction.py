@@ -127,7 +127,8 @@ async def extract_llm_fields(transcript: str) -> dict | None:
         ],
         response_format={"type": "json_object"},
         temperature=0,
-        max_tokens=60,
+        max_tokens=100,
+        extra_body={"thinking": {"type": "disabled"}},
     )
     content = response.choices[0].message.content
     if not content:
