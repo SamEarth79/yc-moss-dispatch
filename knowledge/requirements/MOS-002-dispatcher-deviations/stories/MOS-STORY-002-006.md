@@ -31,6 +31,6 @@ As a dispatcher, I want related past deviations shown below the protocol steps, 
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

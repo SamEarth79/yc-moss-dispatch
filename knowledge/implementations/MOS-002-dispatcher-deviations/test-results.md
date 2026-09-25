@@ -121,3 +121,25 @@ Acceptance mapping:
 - AC6: mock buttons disabled and Submit `aria-disabled=true` (forced click sends nothing) while listening; all restored on stop.
 
 Caveats (unverified): real Deepgram ASR was never exercised (fake stream class and stub `/ws` only); real microphone input and speaker-bleed/echo behaviour between caller playback and the dispatcher mic are unverified (Chromium synthetic beep device). Hence PASS WITH CAVEATS once the failure above is resolved. Waits are Playwright assertions or a polling helper with a fixed deadline for the frame counter; no fixed sleeps.
+
+## MOS-STORY-002-006 — Related Deviations UI
+
+Verdict: PASS WITH CAVEATS. Full suite `cd backend && uv run pytest -q`: 174 passed, 0 failed (154 pre-existing + 20 new); no pre-existing test regressed.
+
+| Layer | Result |
+|---|---|
+| Unit / feature | None new. Frontend-only story; the backend `deviation_update` payload was already tested in 002-003. |
+| E2E (Playwright/Chromium; `backend/tests/e2e/test_deviation_section.py`, own stub app with `/ws` pushing `protocol_update`/`deviation_update`) | 20 passed, 0 failed |
+
+Acceptance mapping:
+- AC1: DOM order in `.instruction-panel` (instructionText < deviationSection < actionRow); heading, "Moss retrieved" tag, "unreviewed" label.
+- AC2: 1 and 2 cards render with summary, date ("Sep 25, 2026"), Protocol/Dispatcher lines, reason only when present; a third deviation is dropped; neutral wording (no "wrong"/"violation"); invalid, empty, null and missing timestamps give an empty date and no "Invalid Date". The teal accent was not asserted (visual only).
+- AC3: placeholder initially and for an empty list; a later empty update clears earlier cards; reset on caller change and on clearing the transcript (typing more does not reset).
+- AC4: `-webkit-line-clamp: 2` and `overflow: hidden` on summary and lines, full text in `title` attributes, content actually clamped; a 600-character unbroken string does not overflow the panel or the page.
+- AC5: labelled region (`aria-labelledby`, findable by role and name), no `aria-live` on or around the section.
+- AC6: chunk text and priority are unchanged when `deviation_update` arrives before or after `protocol_update`, and by later or empty updates; a protocol update does not clear or reorder cards.
+- Security: a `<img onerror>` payload in all four fields renders as text, with no injected element and no script side effect.
+
+Waits are Playwright assertions only; no fixed sleeps.
+
+Caveats (unverified): E2E runs against stubs, so the real Moss score cutoff (`DEVIATION_MIN_SCORE`) and result relevance were not exercised or visually verified; Google Fonts are blocked, so final visual styling (teal accent, spacing) was not eyeballed.

@@ -5,6 +5,7 @@ const transcriptInput = document.getElementById("transcriptInput");
 const extractionFields = document.getElementById("extractionFields");
 const priorityBadge = document.getElementById("priorityBadge");
 const instructionText = document.getElementById("instructionText");
+const deviationList = document.getElementById("deviationList");
 const actionRow = document.getElementById("actionRow");
 const callerSelect = document.getElementById("callerSelect");
 const resolvedAddress = document.getElementById("resolvedAddress");
@@ -169,6 +170,51 @@ function renderProtocolUpdate(msg) {
   renderActionButton();
 }
 
+const DEVIATION_PLACEHOLDER = "Related deviations appear as the call develops…";
+const MAX_DEVIATION_CARDS = 2;
+
+function formatDeviationDate(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function makeDeviationLine(label, text) {
+  const line = makeEl("div", "deviation-line");
+  line.title = text;
+  line.append(makeEl("span", "deviation-line-label", label), document.createTextNode(` ${text}`));
+  return line;
+}
+
+function makeDeviationCard(deviation) {
+  const card = makeEl("div", "deviation-card");
+  const header = makeEl("div", "incident-card-header");
+  const summary = makeEl("span", "deviation-summary", deviation.summary ?? "");
+  summary.title = deviation.summary ?? "";
+  header.append(summary, makeEl("span", "incident-date", formatDeviationDate(deviation.timestamp)));
+  card.append(
+    header,
+    makeDeviationLine("Protocol said:", deviation.protocolChunkText ?? ""),
+    makeDeviationLine("Dispatcher said:", deviation.dispatcherTranscript ?? ""),
+  );
+  if (deviation.reason) {
+    const reason = makeEl("div", "deviation-line deviation-reason", `Reason: ${deviation.reason}`);
+    reason.title = deviation.reason;
+    card.appendChild(reason);
+  }
+  return card;
+}
+
+function renderDeviations(deviations) {
+  const shown = Array.isArray(deviations) ? deviations.slice(0, MAX_DEVIATION_CARDS) : [];
+  if (shown.length === 0) {
+    deviationList.replaceChildren(makeEl("p", "instruction-placeholder", DEVIATION_PLACEHOLDER));
+    return;
+  }
+  deviationList.replaceChildren(...shown.map(makeDeviationCard));
+}
+
 function renderActionButton() {
   actionRow.innerHTML = "";
   const isNone = !currentSuggestedAction || currentSuggestedAction === "none" || currentSuggestedAction === "monitor-no-dispatch";
@@ -239,6 +285,7 @@ function setupCallerSelect() {
   callerSelect.onchange = () => {
     renderExtraction(latestFields);
     resetDispatcherPanel();
+    renderDeviations([]);
     ws.send(JSON.stringify({ type: "set_caller", address: callerSelect.value }));
   };
 }
@@ -273,6 +320,8 @@ function connect() {
       renderCallerContext(msg);
     } else if (msg.type === "protocol_update") {
       renderProtocolUpdate(msg);
+    } else if (msg.type === "deviation_update") {
+      renderDeviations(msg.deviations);
     } else if (msg.type === "extraction_update") {
       renderExtraction(msg.fields);
     } else if (msg.type === "unit_status") {
@@ -691,7 +740,10 @@ dispatcherSubmit.onclick = submitDispatcherReply;
 setupCallerSelect();
 updateSubmitState();
 renderExtraction({});
-transcriptInput.addEventListener("input", (e) => sendTranscript(e.target.value));
+transcriptInput.addEventListener("input", (e) => {
+  if (e.target.value.trim() === "") renderDeviations([]);
+  sendTranscript(e.target.value);
+});
 tickClock();
 setInterval(tickClock, 1000);
 connect();
