@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 import server
+from jev_client import EXTRACTION_QUESTION_COUNT
 from live_panel import PROTOCOL_INDEX_NAME
 
 MAX_MESSAGES = 80
@@ -118,7 +120,7 @@ def test_override_arrives_as_second_extraction_update_with_sources_and_dev_line(
     assert jev_update["sources"] == {"weapons": "jev"}
     assert jev_update["whatHappened"] == "Headline"
     dev = [m for m in seen if _is_dev(m, "jev", "decisions")][-1]
-    assert dev["summary"] == "6 checked, 1 overridden (weapons: unknown→yes)"
+    assert dev["summary"] == f"{EXTRACTION_QUESTION_COUNT} checked, 1 overridden (weapons: unknown→yes)"
     assert isinstance(dev["latencyMs"], float)
 
 
@@ -128,7 +130,7 @@ def test_summary_reports_no_to_yes_when_rule_said_no(monkeypatch):
     with TestClient(server.app).websocket_connect("/ws") as ws:
         seen = _settle_transcript(ws, "there was no weapon")
     dev = [m for m in seen if _is_dev(m, "jev", "decisions")][-1]
-    assert dev["summary"] == "6 checked, 1 overridden (weapons: no→yes)"
+    assert dev["summary"] == f"{EXTRACTION_QUESTION_COUNT} checked, 1 overridden (weapons: no→yes)"
     assert _updates(seen)[0]["weapons"] is False
     assert _updates(seen)[-1]["weapons"] is True
 
@@ -149,7 +151,7 @@ def test_jev_summary_lists_multiple_overrides_and_departments(monkeypatch):
     with TestClient(server.app).websocket_connect("/ws") as ws:
         seen = _settle_transcript(ws, "my dad is hurt")
     summary = [m for m in seen if _is_dev(m, "jev", "decisions")][-1]["summary"]
-    assert summary.startswith("6 checked, 4 overridden (")
+    assert summary.startswith(f"{EXTRACTION_QUESTION_COUNT} checked, 4 overridden (")
     for piece in ("weapons: unknown→yes", "consciousness: unknown→unconscious", "numberOfPatients: 1→2", "departments:"):
         assert piece in summary
     assert _updates(seen)[-1]["sources"] == {
@@ -423,9 +425,38 @@ def test_unknown_rule_value_is_not_turned_into_no_by_jev(monkeypatch):
     assert last["weapons"] is None and last["consciousness"] is None
     assert last["sources"] == {}
     dev = [m for m in seen if _is_dev(m, "jev", "decisions")][-1]
-    assert dev["summary"] == "6 checked, 0 overridden"
+    assert dev["summary"] == f"{EXTRACTION_QUESTION_COUNT} checked, 0 overridden"
 
 
 def test_format_jev_value_renders_none_as_unknown():
     assert server.format_jev_value(None) == "unknown"
     assert server.format_jev_value(True) == "yes"
+
+
+def test_summary_checked_count_matches_question_constant():
+    assert EXTRACTION_QUESTION_COUNT == 6
+    assert server.jev_summary({}, {}) == f"{EXTRACTION_QUESTION_COUNT} checked, 0 overridden"
+
+
+def test_merge_failure_logs_error_line_and_session_keeps_working(monkeypatch):
+    fake = FakeJev([WEAPON_YES, WEAPON_YES])
+    _setup(monkeypatch, fake)
+    real_merge = server.merge_jev_fields
+    calls = []
+
+    def flaky_merge(rule_fields, answers):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ValueError("boom secret transcript")
+        return real_merge(rule_fields, answers)
+
+    monkeypatch.setattr(server, "merge_jev_fields", flaky_merge)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        seen = _settle_transcript(ws, "first call text")
+        devs = [m for m in seen if _is_dev(m, "jev", "decisions")]
+        assert len(devs) == 1
+        assert devs[0]["summary"] == "error, rule values kept"
+        assert "secret" not in json.dumps(devs[0])
+        seen2 = _settle_transcript(ws, "there was a gun")
+    assert _updates(seen2)[-1]["weapons"] is True
+    assert [m for m in seen2 if _is_dev(m, "jev", "decisions")][-1]["summary"].startswith(f"{EXTRACTION_QUESTION_COUNT} checked, ")

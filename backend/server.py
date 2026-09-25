@@ -50,7 +50,7 @@ from query_nearest_facility import haversine_miles, nearest_facility
 from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
 from deviation_judge import judge_deviation
-from jev_client import decide_extraction
+from jev_client import EXTRACTION_QUESTION_COUNT, decide_extraction
 from structured_extraction import extract_llm_fields, extract_rule_fields, jev_confident_fields, merge_jev_fields
 
 NEAREST_FACILITIES_SHOWN = 3
@@ -319,7 +319,7 @@ def format_jev_value(value) -> str:
     return str(value)
 
 
-def jev_summary(rule_fields: dict, merged: dict, checked: int = 6) -> str:
+def jev_summary(rule_fields: dict, merged: dict, checked: int = EXTRACTION_QUESTION_COUNT) -> str:
     changes = [
         f"{name}: {format_jev_value(rule_fields.get(name))}→{format_jev_value(value)}"
         for name, value in merged.items()
@@ -335,6 +335,17 @@ async def run_jev_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text
         await asyncio.sleep(max(0.0, JEV_MIN_GAP_S - (time.monotonic() - last_start)))
     llm_state["jev_last_start"] = time.monotonic()
 
+    try:
+        await apply_jev_decisions(websocket, send_lock, text, rule_fields, llm_state)
+    except Exception:
+        logger.exception("Jev extraction task failed")
+        try:
+            await safe_send_json(websocket, dev_log_payload("jev", "decisions", None, "error, rule values kept"), send_lock)
+        except Exception:
+            logger.exception("Jev error dev line could not be sent")
+
+
+async def apply_jev_decisions(websocket: WebSocket, send_lock: asyncio.Lock, text: str, rule_fields: dict, llm_state: dict):
     answers, jev_ms = await timed(decide_extraction(text))
     if answers is None:
         await safe_send_json(

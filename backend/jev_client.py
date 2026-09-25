@@ -141,9 +141,12 @@ def _patients(answer: object) -> tuple[str, float] | None:
     return choice, float(confidence)
 
 
+_EXTRACTION_QUESTIONS = {**_NOUL_QUESTIONS, "patients": _PATIENTS_QUESTION}
+EXTRACTION_QUESTION_COUNT = len(_EXTRACTION_QUESTIONS)
+
+
 async def decide_extraction(text: str) -> dict | None:
-    questions = {**_NOUL_QUESTIONS, "patients": _PATIENTS_QUESTION}
-    answers = await _decide({"caller_transcript": text}, questions, EXTRACTION_TIMEOUT_S)
+    answers = await _decide({"caller_transcript": text}, _EXTRACTION_QUESTIONS, EXTRACTION_TIMEOUT_S)
     if answers is None:
         return None
 

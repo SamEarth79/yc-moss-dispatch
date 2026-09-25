@@ -64,6 +64,8 @@ Live-run findings (websocket run) and fixes, MOS-STORY-003-004:
 - Unknown != no: Jev turned a None rule value into a definite "no" (weapons) / "conscious". A confident-False answer now applies only when the rule value is not None; confident-True still applies from None; jev_confident_fields(answers, rule_fields) treats an ignored False as not confident. Dev-feed now renders None as "unknown". Tests updated (merge, worker summary strings) and added.
 - Full suite: 268 passed, 0 failed.
 
+Review round 1: task error handling. run_jev_extraction (fire-and-forget task) now wraps the post-sleep work in try/except Exception (CancelledError still propagates): logs via logger.exception without transcript text and sends one 'jev / decisions' dev line 'error, rule values kept'; the handler's own send is guarded. The summary's checked count derives from jev_client.EXTRACTION_QUESTION_COUNT. Tests: merge_jev_fields raising -> no crash, one error dev line, later transcript still updates; checked count equals the constant.
+
 ## MOS-STORY-003-005: Jev tag in the summary panel
 
 Verdict: PASS WITH CAVEATS
