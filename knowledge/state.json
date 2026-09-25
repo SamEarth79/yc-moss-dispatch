@@ -138,9 +138,9 @@
         }
       },
       "pr": {
-        "number": null,
-        "url": null,
-        "state": "none",
+        "number": 2,
+        "url": "https://github.com/SamEarth79/yc-moss-dispatch/pull/2",
+        "state": "open",
         "reviewCycles": 0
       },
       "asana": {
