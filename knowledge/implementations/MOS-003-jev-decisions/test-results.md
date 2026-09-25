@@ -101,3 +101,17 @@ Caveats:
 - E2E runs against stubs (/ws and the judge endpoint); not verified with real Jev output or the real server in a real browser.
 - Backend tests stub `decide_follows` and the DeepSeek client; the Jev wire behavior is not exercised here.
 - Latency "measured" is asserted as >= 0 / rounded to one decimal, and a slow stub (50ms) yields >= 40ms; no absolute timing is asserted.
+
+## Jev shadow mode (summary toggle)
+
+Verdict: PASS
+
+New tests in `backend/test_jev_worker.py` (35 added; non-e2e suite `cd backend && uv run pytest --ignore=tests/e2e -q`: 321 passed, 0 failed):
+- Shadow mode (env unset, `0`, `false`, `no`, `off`, empty): `decide_extraction` still called once, no `sources` or Jev values in any extraction_update, dev line contains `differ from rules`, `weapons: unknown→yes`, `shadow mode, summary unchanged`, latency present.
+- Shadow mode with an overriding answer across four transcripts: all eight updates keep rule/DeepSeek values and `sources == {}`.
+- Shadow mode fallback (None answer): line unchanged (`skipped (unavailable), rule values kept`).
+- Truthy values (`1`, `true`, `TRUE`, `yes`, `on`) apply overrides as before.
+- `jev_affects_summary()` parsing incl. whitespace/case, and read-per-call.
+- `judge_deviation` still uses `decide_follows` regardless of the env.
+
+Caveat: sticky state is asserted via observable updates only (not internal state); fake Jev, no live Jev wire test. `conftest.py` autouse fixture sets `JEV_AFFECTS_SUMMARY=true` so pre-existing tests exercise the applying path.

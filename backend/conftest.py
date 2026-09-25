@@ -18,3 +18,8 @@ def jev_extraction_unavailable_by_default(monkeypatch):
         return None
 
     monkeypatch.setattr(server, "decide_extraction", no_answers)
+
+
+@pytest.fixture(autouse=True)
+def jev_applies_to_summary_in_tests(monkeypatch):
+    monkeypatch.setenv("JEV_AFFECTS_SUMMARY", "true")

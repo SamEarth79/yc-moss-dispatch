@@ -2,6 +2,11 @@
 
 Newest first. Format follows Keep a Changelog. No versioning convention exists in the repo, so entries are dated.
 
+## 2026-09-25: Jev shadow mode
+
+### Changed
+- Jev extraction now runs in shadow mode by default: it still runs and logs `jev / decisions` lines to the developer feed, but no longer changes the Structured Summary (no overrides, `sources` stays empty, no Jev tag). Set `JEV_AFFECTS_SUMMARY=true` to restore overrides. The deviation judge is unaffected.
+
 ## 2026-09-25: MOS-003 Jev Decision Model Integration
 
 ### Added

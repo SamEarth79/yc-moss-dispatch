@@ -132,3 +132,9 @@ Unverified (from `test-results.md`, verdict PASS WITH CAVEATS on stories 001, 00
 - Keep all response parsing in `jev_client.py`; callers should only see plain values or `None`.
 - Any new `extraction_update` sender must go through `build_extraction_payload` so sticky overrides and `sources` are not lost.
 - Do not let Jev supply prose; keep DeepSeek for summaries.
+
+## Shadow mode (summary toggle)
+
+Jev extraction runs in **shadow mode by default**: `decide_extraction` is still called on every settled transcript and a `jev / decisions` line is sent to the developer feed (for example `6 checked, 2 differ from rules (weapons: yes→no) — shadow mode, summary unchanged`), but Jev never changes the Structured Summary: no sticky overrides are stored, no `extraction_update` is sent by the Jev task, `sources` stays `{}` and the "Jev" tag never appears. The fallback line (`skipped (unavailable), rule values kept`) is unchanged.
+
+Set the environment variable `JEV_AFFECTS_SUMMARY` to `1`, `true`, `yes` or `on` (case-insensitive) to let Jev override the rule values again. It is read on every call (`server.jev_affects_summary()`), so it needs no code change, only an environment change and restart. The deviation judge is not affected by this flag: it still asks Jev first, then DeepSeek.

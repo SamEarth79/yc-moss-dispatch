@@ -64,6 +64,12 @@ JEV_SETTLE_DELAY_S = 0.6
 JEV_MIN_GAP_S = 0.8
 
 
+def jev_affects_summary() -> bool:
+    """Jev extraction runs in shadow mode (calls and feed lines only) unless JEV_AFFECTS_SUMMARY is
+    set to a truthy value; read per call so a deployment can flip it without a code change."""
+    return os.getenv("JEV_AFFECTS_SUMMARY", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def distance_label(miles: float) -> str:
     meters = miles * 1609.34
     if meters < 1000:
@@ -319,13 +325,13 @@ def format_jev_value(value) -> str:
     return str(value)
 
 
-def jev_summary(rule_fields: dict, merged: dict, checked: int = EXTRACTION_QUESTION_COUNT) -> str:
+def jev_summary(rule_fields: dict, merged: dict, checked: int = EXTRACTION_QUESTION_COUNT, verb: str = "overridden") -> str:
     changes = [
         f"{name}: {format_jev_value(rule_fields.get(name))}→{format_jev_value(value)}"
         for name, value in merged.items()
         if value != rule_fields.get(name)
     ]
-    return f"{checked} checked, {len(changes)} overridden" + (f" ({', '.join(changes)})" if changes else "")
+    return f"{checked} checked, {len(changes)} {verb}" + (f" ({', '.join(changes)})" if changes else "")
 
 
 async def run_jev_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text: str, rule_fields: dict, llm_state: dict):
@@ -356,6 +362,14 @@ async def apply_jev_decisions(websocket: WebSocket, send_lock: asyncio.Lock, tex
         return
 
     merged, sources = merge_jev_fields(rule_fields, answers)
+    if not jev_affects_summary():
+        await safe_send_json(
+            websocket,
+            dev_log_payload("jev", "decisions", jev_ms, f"{jev_summary(rule_fields, merged, verb='differ from rules')} — shadow mode, summary unchanged"),
+            send_lock,
+        )
+        return
+
     jev_state = llm_state["jev_state"]
     for name in jev_confident_fields(answers, rule_fields):
         jev_state["overrides"].pop(name, None)

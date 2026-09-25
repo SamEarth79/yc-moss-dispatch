@@ -460,3 +460,114 @@ def test_merge_failure_logs_error_line_and_session_keeps_working(monkeypatch):
         seen2 = _settle_transcript(ws, "there was a gun")
     assert _updates(seen2)[-1]["weapons"] is True
     assert [m for m in seen2 if _is_dev(m, "jev", "decisions")][-1]["summary"].startswith(f"{EXTRACTION_QUESTION_COUNT} checked, ")
+
+
+SHADOW_ENV_VALUES = [None, "0", "false", "no", "off", ""]
+APPLY_ENV_VALUES = ["1", "true", "TRUE", "yes", "on"]
+
+
+def _set_env(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("JEV_AFFECTS_SUMMARY", raising=False)
+    else:
+        monkeypatch.setenv("JEV_AFFECTS_SUMMARY", value)
+
+
+def _round_until_both_dev_lines(ws, text):
+    """Sends a transcript and reads until both the Jev and DeepSeek dev lines have arrived."""
+    _send(ws, text)
+    seen = []
+    while not (any(_is_dev(m, "jev", "decisions") for m in seen) and any(_is_dev(m, "llm", "extraction") for m in seen)):
+        seen += _until(ws, lambda m: True)
+    return seen
+
+
+@pytest.mark.parametrize("env_value", SHADOW_ENV_VALUES)
+def test_shadow_mode_calls_jev_but_leaves_updates_unchanged_and_logs_differences(monkeypatch, env_value):
+    fake = FakeJev([{"weapon": 0.96}])
+    _setup(monkeypatch, fake)
+    _set_env(monkeypatch, env_value)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        seen = _round_until_both_dev_lines(ws, "my dad is hurt")
+    assert len(fake.calls) == 1
+    updates = _updates(seen)
+    assert len(updates) == 2
+    assert all(u["weapons"] is None and u["sources"] == {} for u in updates)
+    assert updates[-1]["whatHappened"] == "Headline"
+    dev = [m for m in seen if _is_dev(m, "jev", "decisions")]
+    assert len(dev) == 1
+    assert "shadow mode, summary unchanged" in dev[0]["summary"]
+    assert "differ from rules" in dev[0]["summary"]
+    assert "weapons: unknown→yes" in dev[0]["summary"]
+    assert isinstance(dev[0]["latencyMs"], float)
+
+
+def test_shadow_mode_override_never_leaks_into_later_updates_or_sticky_state(monkeypatch):
+    fake = FakeJev([{"weapon": 0.96}, {"weapon": 0.96}, WEAPON_UNSURE, {"weapon": 0.96}])
+    _setup(monkeypatch, fake)
+    monkeypatch.delenv("JEV_AFFECTS_SUMMARY", raising=False)
+    everything = []
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        for text in ("my dad is hurt", "my dad is hurt badly", "he is bleeding", "he is bleeding a lot"):
+            everything += _round_until_both_dev_lines(ws, text)
+    assert len(fake.calls) == 4
+    updates = _updates(everything)
+    assert len(updates) == 8
+    assert all(u["weapons"] is None and u["sources"] == {} for u in updates)
+
+
+def test_shadow_mode_fallback_line_is_unchanged(monkeypatch):
+    fake = FakeJev([None])
+    _setup(monkeypatch, fake)
+    monkeypatch.delenv("JEV_AFFECTS_SUMMARY", raising=False)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        seen = _round_until_both_dev_lines(ws, "my dad is hurt")
+    assert [m["summary"] for m in seen if _is_dev(m, "jev", "decisions")] == ["skipped (unavailable), rule values kept"]
+    assert all(u["weapons"] is None and u["sources"] == {} for u in _updates(seen))
+
+
+@pytest.mark.parametrize("env_value", APPLY_ENV_VALUES)
+def test_truthy_env_values_apply_overrides(monkeypatch, env_value):
+    fake = FakeJev([WEAPON_YES])
+    _setup(monkeypatch, fake)
+    _set_env(monkeypatch, env_value)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        seen = _settle_transcript(ws, "my dad is hurt")
+    last = _updates(seen)[-1]
+    assert last["weapons"] is True and last["sources"] == {"weapons": "jev"}
+    summary = [m for m in seen if _is_dev(m, "jev", "decisions")][-1]["summary"]
+    assert "shadow mode" not in summary and "overridden" in summary
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [(None, False), ("", False), ("0", False), ("false", False), ("no", False), ("off", False), ("garbage", False),
+     ("1", True), ("true", True), ("TRUE", True), ("True", True), ("yes", True), ("on", True),
+     ("  true  ", True), (" ON\n", True), ("  ", False)],
+)
+def test_jev_affects_summary_parsing(monkeypatch, value, expected):
+    _set_env(monkeypatch, value)
+    assert server.jev_affects_summary() is expected
+
+
+def test_jev_affects_summary_is_read_per_call(monkeypatch):
+    monkeypatch.setenv("JEV_AFFECTS_SUMMARY", "false")
+    assert server.jev_affects_summary() is False
+    monkeypatch.setenv("JEV_AFFECTS_SUMMARY", "true")
+    assert server.jev_affects_summary() is True
+
+
+@pytest.mark.parametrize("env_value", [None, "false", "true"])
+def test_deviation_judge_still_uses_jev_regardless_of_summary_toggle(monkeypatch, env_value):
+    import asyncio
+
+    import deviation_judge
+
+    async def follows(*args, **kwargs):
+        return 0.9
+
+    monkeypatch.setattr(deviation_judge, "decide_follows", follows)
+    _set_env(monkeypatch, env_value)
+    result = asyncio.run(deviation_judge.judge_deviation("reply", None, "chunk", "transcript"))
+    assert result["verdict"] == "followed"
+    assert result["devLog"][0]["summary"] == "P(follows)=0.90 → followed"
