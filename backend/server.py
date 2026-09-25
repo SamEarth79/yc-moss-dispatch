@@ -682,5 +682,48 @@ async def judge_dispatcher_deviation(body: JudgeDeviationRequest):
     return {"verdict": "deviated", "deviationSummary": summary, "id": doc_id, "retrievable": retrievable}
 
 
+def parse_caller_summary(raw: str | None) -> dict:
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def deviation_record(doc) -> dict:
+    metadata = doc.metadata or {}
+    return {
+        "id": doc.id,
+        "timestamp": metadata.get("timestamp", ""),
+        "callerTranscript": metadata.get("callerTranscript", ""),
+        "callerSummary": parse_caller_summary(metadata.get("callerSummary")),
+        "protocolChunkId": metadata.get("protocolChunkId", ""),
+        "protocolChunkText": metadata.get("protocolChunkText", ""),
+        "dispatcherTranscript": metadata.get("dispatcherTranscript", ""),
+        "deviationSummary": metadata.get("deviationSummary", ""),
+        "reason": metadata.get("reason", ""),
+        "seed": metadata.get("seed") == "true",
+    }
+
+
+@app.get("/api/deviations")
+async def list_deviations():
+    try:
+        await moss_client.get_index(DEVIATION_INDEX_NAME)
+    except RuntimeError:
+        return []
+    except Exception:
+        logger.exception("Failed to look up deviation index")
+        raise HTTPException(status_code=500, detail="Failed to retrieve deviations")
+
+    try:
+        docs = await moss_client.get_docs(DEVIATION_INDEX_NAME)
+    except Exception:
+        logger.exception("Failed to retrieve deviations")
+        raise HTTPException(status_code=500, detail="Failed to retrieve deviations")
+
+    return sorted((deviation_record(doc) for doc in docs), key=lambda record: record["timestamp"], reverse=True)
+
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

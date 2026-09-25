@@ -31,6 +31,6 @@ As a user, I want a page listing every recorded deviation, so that I can review 
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

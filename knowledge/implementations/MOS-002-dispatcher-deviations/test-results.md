@@ -56,3 +56,23 @@ Acceptance criteria mapping: AC1 both queries recorded with identical trailing-w
 Caveats (unverified):
 - `DEVIATION_MIN_SCORE=0.3` is an untuned guess and the real Moss score scale is unverified.
 - Retrieval was tested only with a mocked Moss client; real query ranking/latency and real `load_index` making new docs retrievable are unverified.
+
+## MOS-STORY-002-007: Deviations page
+
+Command: `cd backend && uv run pytest -q` (after `uv run playwright install chromium`)
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit/feature (`GET /api/deviations`; fake `moss_client`, TestClient; `backend/test_deviations_list.py`) | 9 passed, 0 failed |
+| E2E (Playwright/Chromium; `backend/tests/e2e/test_deviations_page.py`, stub harness extended in `conftest.py` with `/api/deviations`) | 11 passed, 0 failed |
+| Full backend suite incl. e2e | 115 passed, 0 failed (20 new: 9 API + 11 E2E; 88 non-E2E, 27 E2E) |
+
+Acceptance criteria mapping: AC1 empty array when index missing (RuntimeError) and when empty, newest-first sort, exact 10-key shape, missing metadata defaults, malformed/non-object/empty callerSummary -> `{}`, seed only for `"true"`, 500 `Failed to retrieve deviations` for index-lookup and get_docs failures with no secret text leaked. AC2 populated, empty, error + Retry recovery, loading-to-populated, count badge (singular/plural), show-more clamp toggle, no clamp for short text. AC3 sample tag only on seeded records. AC4 `time[datetime]`, single `<main>`, `lang="en"`, title, no horizontal overflow at 375px with 600-char unbroken text. AC5 nav link on index.html and manage.html, deviations page links back to both (click-through verified). AC6 no edit/delete/input controls.
+
+Caveats (unverified):
+- E2E runs against a stub server returning fixture data (order supplied by the stub); real Moss and the real `/api/deviations` route were not exercised together in the browser. Sorting is verified only at the API layer with a fake client.
+- Real Moss `get_index` error type for a missing index is assumed to be `RuntimeError` (per implementation), not confirmed against a live project.
+- The 1-column layout under 640px was checked only indirectly (no horizontal overflow at 375px), not via computed grid columns.
+- Google Fonts are external and not loaded/verified in the test environment.

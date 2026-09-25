@@ -1085,3 +1085,55 @@ button.action-button:disabled {
   background: rgba(39, 166, 68, 0.15);
   color: var(--color-pulse-green);
 }
+
+/* Deviations page */
+
+.deviation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deviation-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.deviation-time {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+.deviation-row {
+  align-items: start;
+}
+
+.deviation-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deviation-value .chunk-text {
+  margin: 0 0 4px;
+}
+
+.deviation-value .chunk-id {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.deviation-caller-summary {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+@media (max-width: 640px) {
+  .deviation-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
