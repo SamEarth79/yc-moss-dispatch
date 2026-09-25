@@ -132,9 +132,9 @@
           "commit": "6049fa0"
         },
         "MOS-STORY-003-006": {
-          "status": "in_progress",
-          "step": "execute",
-          "commit": null
+          "status": "committed",
+          "step": null,
+          "commit": "f285d88"
         }
       },
       "pr": {

@@ -2,6 +2,22 @@
 
 Newest first. Format follows Keep a Changelog. No versioning convention exists in the repo, so entries are dated.
 
+## 2026-09-25: MOS-003 Jev Decision Model Integration
+
+### Added
+- Jev (OpenRouter Decisions API, `typesafe/jev-1.13`) client in `backend/jev_client.py`. Requires the new `OPENROUTER_API_KEY` env var (placeholder in `backend/.env.example`); without it the app silently keeps using rules and DeepSeek.
+- Background Jev refinement of the Structured Summary (patients, consciousness, weapons, departments): overrides rule values only when confident (>= 0.7 true, <= 0.3 false), stays sticky across later transcripts in the same call, and resets on caller change or empty transcript.
+- `extraction_update.fields.sources` (e.g. `{"weapons": "jev"}`): lists fields where a Jev value differs from the rule value.
+- Summary panel shows a "Jev" tag, a dot on Jev-refined rows, a short fade on Jev-changed rows (off under reduced motion) and a polite screen-reader announcement.
+- Dev feed lines `jev / decisions` with latency and what was overridden, or `skipped (unavailable), rule values kept` on fallback.
+- `POST /api/deviations/judge` 200 responses gain an additive `devLog` array; the developer feed shows a `jev / verdict` line (e.g. `P(follows)=0.87 → followed`, or `skipped (unavailable), DeepSeek fallback`) with lavender `jev` styling.
+- `backend/conftest.py`: autouse stubs keep tests offline on the fallback paths.
+
+### Changed
+- `POST /api/deviations/judge` asks Jev first (P(follows) >= 0.3 is `followed`); DeepSeek is then only called to write the summary of a deviation. If Jev is unavailable the original DeepSeek verdict runs. Request and response shapes are unchanged.
+- Jev extraction calls are rate-limited: 0.6 s after the transcript settles and at least 0.8 s between calls (`JEV_SETTLE_DELAY_S`, `JEV_MIN_GAP_S` in `server.py`).
+- Structured Summary rows and developer-feed rows are now built with `textContent` instead of `innerHTML`.
+
 ## 2026-09-25: MOS-002 Dispatcher Deviation Tracking
 
 ### Added
