@@ -73,9 +73,9 @@
           "commit": "a67cce0"
         },
         "MOS-STORY-002-006": {
-          "status": "pending",
+          "status": "committed",
           "step": null,
-          "commit": null
+          "commit": "013bd82"
         },
         "MOS-STORY-002-007": {
           "status": "committed",
