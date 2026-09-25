@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deviations — Dispatch Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Deviations</h1>
+    <nav class="header-nav">
+      <a class="nav-link" href="/">Dispatch Copilot</a>
+      <a class="nav-link" href="/manage.html">Manage Indexes</a>
+    </nav>
+  </header>
+
+  <main class="manage-main">
+    <section class="panel index-select-bar">
+      <span class="index-select-label">Recorded deviations</span>
+      <span id="deviationCountBadge" class="badge"></span>
+    </section>
+
+    <div id="errorBanner" class="error-banner" hidden>
+      <span id="errorBannerText"></span>
+      <button id="retryButton" class="action-button none" type="button">Retry</button>
+    </div>
+
+    <section id="deviationsArea" class="docs-area"></section>
+  </main>
+
+  <script src="deviations.js"></script>
+</body>
+</html>

@@ -25,7 +25,9 @@ import logging
 import os
 import random
 import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -33,18 +35,28 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from moss import DocumentInfo, MossClient, QueryOptions
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from starlette.websockets import WebSocketState
 
-from live_panel import LIVE_DATA_INDEX_NAME, PROTOCOL_INDEX_NAME, WINDOW_WORDS, trailing_window
+from live_panel import (
+    DEVIATION_INDEX_NAME,
+    LIVE_DATA_INDEX_NAME,
+    PROTOCOL_INDEX_NAME,
+    WINDOW_WORDS,
+    trailing_window,
+)
 from query_nearest_facility import haversine_miles, nearest_facility
 from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
+from deviation_judge import judge_deviation
 from structured_extraction import extract_llm_fields, extract_rule_fields
 
 NEAREST_FACILITIES_SHOWN = 3
 
 logger = logging.getLogger(__name__)
+
+# Moss score scale is not documented in the SDK; tune against the seeded deviations.
+DEVIATION_MIN_SCORE = 0.3
 
 
 def distance_label(miles: float) -> str:
@@ -122,9 +134,21 @@ async def lifespan(app: FastAPI):
         if retry.failed:
             raise RuntimeError(f"Failed to load indexes after retry: {retry.failed}")
 
+    loaded_indexes = list(index_names)
+
+    # Optional: a missing or broken deviation index must not take the server down.
+    try:
+        deviation_result = await moss_client.load_indexes([DEVIATION_INDEX_NAME], cache_path=cache_path)
+        if deviation_result.failed:
+            logger.warning("Deviation index not loaded: %s", deviation_result.failed)
+        else:
+            loaded_indexes.append(DEVIATION_INDEX_NAME)
+    except Exception:
+        logger.warning("Deviation index not loaded", exc_info=True)
+
     print("Indexes loaded. Ready for connections.")
     yield
-    await moss_client.unload_indexes([PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME])
+    await moss_client.unload_indexes(loaded_indexes)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -264,6 +288,29 @@ async def run_llm_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text
     await safe_send_json(websocket, dev_log_payload("llm", "extraction", extraction_ms, summary), send_lock)
 
 
+async def query_deviations(query_text: str):
+    """Returns the Moss result, or None when the deviation index is unavailable, so a
+    missing or failing deviation index never breaks the protocol path."""
+    try:
+        return await moss_client.query(DEVIATION_INDEX_NAME, query_text, QueryOptions(top_k=2))
+    except Exception:
+        logger.warning("Deviation query failed", exc_info=True)
+        return None
+
+
+def deviation_payload(doc) -> dict:
+    metadata = doc.metadata or {}
+    return {
+        "id": doc.id,
+        "summary": metadata.get("deviationSummary", ""),
+        "dispatcherTranscript": metadata.get("dispatcherTranscript", ""),
+        "reason": metadata.get("reason", ""),
+        "timestamp": metadata.get("timestamp", ""),
+        "score": doc.score,
+        "protocolChunkText": metadata.get("protocolChunkText", ""),
+    }
+
+
 async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, latest: dict, ready: asyncio.Event):
     """Waits for a transcript to process, always picking up whatever is CURRENTLY the
     latest one when it becomes free — not a FIFO queue. Rule fields and the Moss query
@@ -282,7 +329,10 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
                 llm_state["task"].cancel()
 
             query_text = trailing_window(text, WINDOW_WORDS)
-            result = await moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1))
+            result, deviation_result = await asyncio.gather(
+                moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1)),
+                query_deviations(query_text),
+            )
             top = result.docs[0]
 
             await safe_send_json(
@@ -303,6 +353,28 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
                 dev_log_payload("moss", "protocol-query", result.time_taken_ms, f'"{query_text}" → {top.id} ({top.score:.2f})'),
                 send_lock,
             )
+
+            deviation_docs = (
+                [doc for doc in deviation_result.docs if doc.score >= DEVIATION_MIN_SCORE]
+                if deviation_result is not None
+                else []
+            )
+            await safe_send_json(
+                websocket,
+                {"type": "deviation_update", "deviations": [deviation_payload(doc) for doc in deviation_docs]},
+                send_lock,
+            )
+            if deviation_result is not None:
+                await safe_send_json(
+                    websocket,
+                    dev_log_payload(
+                        "moss",
+                        "deviation-query",
+                        deviation_result.time_taken_ms,
+                        f"{len(deviation_result.docs)} retrieved → {len(deviation_docs)} above {DEVIATION_MIN_SCORE}",
+                    ),
+                    send_lock,
+                )
 
             rule_fields = extract_rule_fields(text)
             await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)
@@ -325,7 +397,10 @@ async def ws_session(websocket: WebSocket):
     transcript_ready = asyncio.Event()
     worker_task = asyncio.create_task(transcript_worker(websocket, send_lock, latest_transcript, transcript_ready))
 
-    voice = {"stream": None}
+    voice = {"caller": None, "dispatcher": None}
+
+    async def handle_dispatcher_voice_transcript(full_text: str, is_final: bool):
+        await safe_send_json(websocket, {"type": "dispatcher_voice_transcript", "text": full_text, "isFinal": is_final}, send_lock)
 
     async def handle_voice_transcript(full_text: str, is_final: bool):
         latest_transcript["text"] = full_text
@@ -340,27 +415,44 @@ async def ws_session(websocket: WebSocket):
             if frame["type"] == "websocket.disconnect":
                 break
             if frame.get("bytes") is not None:
-                if voice["stream"] is not None:
-                    await voice["stream"].send_audio(frame["bytes"])
+                # Binary frames carry no channel tag, so only one channel may hold an open
+                # stream at a time (enforced in voice_start); the frame goes to whichever is open.
+                active_stream = voice["dispatcher"] or voice["caller"]
+                if active_stream is not None:
+                    await active_stream.send_audio(frame["bytes"])
                 continue
             msg = json.loads(frame["text"])
 
+            if msg["type"] in ("voice_start", "voice_stop"):
+                channel = msg.get("channel", "caller")
+                if channel not in voice:
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "error", "reason": "unknown voice channel"}, send_lock)
+                    continue
+                status_extra = {"channel": "dispatcher"} if channel == "dispatcher" else {}
+
             if msg["type"] == "voice_start":
-                stream = DeepgramStream(handle_voice_transcript)
+                other_channel = "caller" if channel == "dispatcher" else "dispatcher"
+                if voice[other_channel] is not None:
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": "another microphone is already active", **status_extra}, send_lock)
+                    continue
+                on_transcript = handle_dispatcher_voice_transcript if channel == "dispatcher" else handle_voice_transcript
+                stream = DeepgramStream(on_transcript)
                 try:
                     await stream.start()
                 except VoiceStreamUnavailable as exc:
-                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": str(exc)}, send_lock)
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": str(exc), **status_extra}, send_lock)
                     continue
-                voice["stream"] = stream
-                await safe_send_json(websocket, {"type": "voice_status", "state": "listening"}, send_lock)
+                if voice[channel] is not None:
+                    await voice[channel].stop()
+                voice[channel] = stream
+                await safe_send_json(websocket, {"type": "voice_status", "state": "listening", **status_extra}, send_lock)
                 await safe_send_json(websocket, dev_log_payload("asr", "stream-open", None, "live speech-to-text connected"), send_lock)
 
             elif msg["type"] == "voice_stop":
-                if voice["stream"] is not None:
-                    await voice["stream"].stop()
-                    voice["stream"] = None
-                await safe_send_json(websocket, {"type": "voice_status", "state": "stopped"}, send_lock)
+                if voice[channel] is not None:
+                    await voice[channel].stop()
+                    voice[channel] = None
+                await safe_send_json(websocket, {"type": "voice_status", "state": "stopped", **status_extra}, send_lock)
 
             if msg["type"] == "set_caller":
                 address = msg["address"]
@@ -393,8 +485,9 @@ async def ws_session(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        if voice["stream"] is not None:
-            await voice["stream"].stop()
+        for stream in voice.values():
+            if stream is not None:
+                await stream.stop()
         status_task.cancel()
         worker_task.cancel()
 
@@ -460,7 +553,7 @@ class UpdateDocRequest(BaseModel):
         return value
 
 
-LIVE_LOADED_INDEXES = {PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME}
+LIVE_LOADED_INDEXES = {PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME, DEVIATION_INDEX_NAME}
 
 
 async def _reload_if_live(name: str) -> None:
@@ -517,6 +610,146 @@ async def delete_index_doc(name: str, doc_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete document")
 
     await _reload_if_live(name)
+
+
+class CallerSummary(BaseModel):
+    whatHappened: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class JudgeDeviationRequest(BaseModel):
+    dispatcherText: str = Field(max_length=2000)
+    reason: Optional[str] = Field(default=None, max_length=500)
+    protocolChunkId: str = Field(max_length=200)
+    protocolChunkText: str = Field(max_length=4000)
+    callerTranscript: str = Field(max_length=10000)
+    callerSummary: Optional[CallerSummary] = None
+
+    @field_validator("dispatcherText", "protocolChunkId", "protocolChunkText", "callerTranscript")
+    @classmethod
+    def not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
+
+
+def deviation_caller_situation(body: JudgeDeviationRequest) -> str:
+    transcript_tail = trailing_window(body.callerTranscript.strip(), WINDOW_WORDS)
+    what_happened = (body.callerSummary.whatHappened or "").strip() if body.callerSummary else ""
+    if not what_happened:
+        return transcript_tail
+    return f"{what_happened} {transcript_tail}"
+
+
+save_deviation_lock = asyncio.Lock()
+
+
+async def save_deviation(doc: DocumentInfo) -> None:
+    # The lock makes check-then-create atomic: without it, two concurrent first-time
+    # verdicts can both see the index missing and both call create_index.
+    async with save_deviation_lock:
+        existing = await moss_client.list_indexes()
+        if any(index.name == DEVIATION_INDEX_NAME for index in existing):
+            await moss_client.add_docs(DEVIATION_INDEX_NAME, [doc])
+        else:
+            await moss_client.create_index(DEVIATION_INDEX_NAME, [doc])
+
+
+@app.post("/api/deviations/judge")
+async def judge_dispatcher_deviation(body: JudgeDeviationRequest):
+    reason = (body.reason or "").strip()
+
+    try:
+        verdict = await judge_deviation(
+            body.dispatcherText.strip(), reason or None, body.protocolChunkText, body.callerTranscript
+        )
+    except Exception:
+        logger.exception("Deviation judge call failed")
+        raise HTTPException(status_code=502, detail="Could not judge response")
+
+    if verdict is None:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+
+    if verdict["verdict"] == "followed":
+        return {"verdict": "followed"}
+
+    summary = verdict["deviationSummary"]
+    doc_id = f"dev-{uuid.uuid4().hex}"
+    doc = DocumentInfo(
+        id=doc_id,
+        text=f"{deviation_caller_situation(body)}\n{summary}",
+        metadata={
+            "type": "deviation",
+            "callerTranscript": body.callerTranscript,
+            "callerSummary": json.dumps(body.callerSummary.model_dump() if body.callerSummary else {}),
+            "protocolChunkId": body.protocolChunkId,
+            "protocolChunkText": body.protocolChunkText,
+            "dispatcherTranscript": body.dispatcherText.strip(),
+            "deviationSummary": summary,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "seed": "false",
+        },
+    )
+
+    try:
+        await save_deviation(doc)
+    except Exception:
+        logger.exception("Failed to save deviation")
+        raise HTTPException(status_code=500, detail="Failed to save deviation")
+
+    try:
+        await moss_client.load_index(DEVIATION_INDEX_NAME)
+        retrievable = True
+    except Exception:
+        logger.exception("Failed to reload deviation index after save")
+        retrievable = False
+
+    return {"verdict": "deviated", "deviationSummary": summary, "id": doc_id, "retrievable": retrievable}
+
+
+def parse_caller_summary(raw: str | None) -> dict:
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def deviation_record(doc) -> dict:
+    metadata = doc.metadata or {}
+    return {
+        "id": doc.id,
+        "timestamp": metadata.get("timestamp", ""),
+        "callerTranscript": metadata.get("callerTranscript", ""),
+        "callerSummary": parse_caller_summary(metadata.get("callerSummary")),
+        "protocolChunkId": metadata.get("protocolChunkId", ""),
+        "protocolChunkText": metadata.get("protocolChunkText", ""),
+        "dispatcherTranscript": metadata.get("dispatcherTranscript", ""),
+        "deviationSummary": metadata.get("deviationSummary", ""),
+        "reason": metadata.get("reason", ""),
+        "seed": metadata.get("seed") == "true",
+    }
+
+
+@app.get("/api/deviations")
+async def list_deviations():
+    try:
+        await moss_client.get_index(DEVIATION_INDEX_NAME)
+    except RuntimeError:
+        return []
+    except Exception:
+        logger.exception("Failed to look up deviation index")
+        raise HTTPException(status_code=500, detail="Failed to retrieve deviations")
+
+    try:
+        docs = await moss_client.get_docs(DEVIATION_INDEX_NAME)
+    except Exception:
+        logger.exception("Failed to retrieve deviations")
+        raise HTTPException(status_code=500, detail="Failed to retrieve deviations")
+
+    return sorted((deviation_record(doc) for doc in docs), key=lambda record: record["timestamp"], reverse=True)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"

@@ -44,6 +44,8 @@ class StubState:
         self.docs_by_index = {}
         self.docs_status = 200
         self.mutation_status = 200
+        self.deviations = []
+        self.deviations_status = 200
 
 
 def build_stub_app(state: StubState) -> FastAPI:
@@ -95,6 +97,12 @@ def build_stub_app(state: StubState) -> FastAPI:
             raise HTTPException(status_code=state.mutation_status, detail="stub failure")
         chunks = state.docs_by_index.setdefault(name, [])
         state.docs_by_index[name] = [c for c in chunks if c["id"] != doc_id]
+
+    @app.get("/api/deviations")
+    async def list_deviations():
+        if state.deviations_status != 200:
+            raise HTTPException(status_code=state.deviations_status, detail="stub failure")
+        return state.deviations
 
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

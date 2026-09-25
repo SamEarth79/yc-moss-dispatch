@@ -305,6 +305,70 @@ main {
   background: var(--color-signal-teal);
 }
 
+.deviation-section {
+  margin-top: 16px;
+}
+
+.deviation-section h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  justify-content: flex-start;
+}
+
+.deviation-unreviewed {
+  font-size: 10px;
+  color: var(--color-ash);
+  font-style: italic;
+}
+
+.deviation-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.deviation-card {
+  background: rgba(8, 9, 10, 0.04);
+  border: 1px solid rgba(8, 9, 10, 0.09);
+  border-left: 3px solid var(--color-signal-teal);
+  border-radius: var(--radius-inputs);
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.deviation-summary {
+  font-size: 13px;
+  font-weight: var(--font-weight-w510);
+  color: var(--color-mist);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.deviation-line {
+  font-size: 12px;
+  color: var(--color-fog);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.deviation-line-label {
+  font-weight: var(--font-weight-w510);
+  color: var(--color-mist);
+}
+
+.deviation-reason {
+  color: var(--color-ash);
+}
+
 .action-row {
   margin-top: 16px;
 }
@@ -1084,4 +1148,161 @@ button.action-button:disabled {
 .dev-log-service--asr {
   background: rgba(39, 166, 68, 0.15);
   color: var(--color-pulse-green);
+}
+
+/* Deviations page */
+
+.deviation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deviation-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.deviation-time {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+.deviation-row {
+  align-items: start;
+}
+
+.deviation-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deviation-value .chunk-text {
+  margin: 0 0 4px;
+}
+
+.deviation-value .chunk-id {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.deviation-caller-summary {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+@media (max-width: 640px) {
+  .deviation-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* Dispatcher panel */
+
+.field-label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+.reason-input {
+  width: 100%;
+  background: rgba(8, 9, 10, 0.03);
+  border: 1px solid rgba(8, 9, 10, 0.12);
+  border-radius: var(--radius-inputs);
+  color: var(--color-mist);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 10px;
+}
+
+.reason-input:focus {
+  outline: none;
+  border-color: var(--color-mist);
+}
+
+.voice-controls .voice-button {
+  min-width: 0;
+}
+
+.voice-button[aria-pressed="true"] {
+  border-color: var(--color-mist);
+  background: rgba(8, 9, 10, 0.06);
+}
+
+.dispatcher-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+button.action-button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dispatcher-helper {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-fog);
+}
+
+.verdict-slot {
+  margin-top: 12px;
+}
+
+.verdict-card {
+  background: rgba(8, 9, 10, 0.04);
+  border: 1px solid rgba(8, 9, 10, 0.09);
+  border-left: 3px solid var(--color-graphite);
+  border-radius: var(--radius-inputs);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-fog);
+}
+
+.verdict-card--followed {
+  border-left-color: var(--color-pulse-green);
+  background: rgba(39, 166, 68, 0.07);
+}
+
+.verdict-card--deviated {
+  border-left-color: var(--color-coral-red);
+  background: rgba(235, 87, 87, 0.07);
+}
+
+.verdict-card--error {
+  border-left-color: var(--color-ash);
+}
+
+.verdict-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: var(--font-weight-w510);
+  color: var(--color-mist);
+}
+
+.verdict-meta {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.verdict-meta code {
+  font-family: var(--font-mono);
+}
+
+.verdict-warning {
+  margin: 6px 0 0;
+  font-weight: var(--font-weight-w510);
+  color: var(--color-coral-red);
 }
