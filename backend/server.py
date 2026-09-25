@@ -55,6 +55,9 @@ NEAREST_FACILITIES_SHOWN = 3
 
 logger = logging.getLogger(__name__)
 
+# Moss score scale is not documented in the SDK; tune against the seeded deviations.
+DEVIATION_MIN_SCORE = 0.3
+
 
 def distance_label(miles: float) -> str:
     meters = miles * 1609.34
@@ -285,6 +288,29 @@ async def run_llm_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text
     await safe_send_json(websocket, dev_log_payload("llm", "extraction", extraction_ms, summary), send_lock)
 
 
+async def query_deviations(query_text: str):
+    """Returns the Moss result, or None when the deviation index is unavailable, so a
+    missing or failing deviation index never breaks the protocol path."""
+    try:
+        return await moss_client.query(DEVIATION_INDEX_NAME, query_text, QueryOptions(top_k=2))
+    except Exception:
+        logger.warning("Deviation query failed", exc_info=True)
+        return None
+
+
+def deviation_payload(doc) -> dict:
+    metadata = doc.metadata or {}
+    return {
+        "id": doc.id,
+        "summary": metadata.get("deviationSummary", ""),
+        "dispatcherTranscript": metadata.get("dispatcherTranscript", ""),
+        "reason": metadata.get("reason", ""),
+        "timestamp": metadata.get("timestamp", ""),
+        "score": doc.score,
+        "protocolChunkText": metadata.get("protocolChunkText", ""),
+    }
+
+
 async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, latest: dict, ready: asyncio.Event):
     """Waits for a transcript to process, always picking up whatever is CURRENTLY the
     latest one when it becomes free — not a FIFO queue. Rule fields and the Moss query
@@ -303,7 +329,10 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
                 llm_state["task"].cancel()
 
             query_text = trailing_window(text, WINDOW_WORDS)
-            result = await moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1))
+            result, deviation_result = await asyncio.gather(
+                moss_client.query(PROTOCOL_INDEX_NAME, query_text, QueryOptions(top_k=1)),
+                query_deviations(query_text),
+            )
             top = result.docs[0]
 
             await safe_send_json(
@@ -324,6 +353,28 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
                 dev_log_payload("moss", "protocol-query", result.time_taken_ms, f'"{query_text}" → {top.id} ({top.score:.2f})'),
                 send_lock,
             )
+
+            deviation_docs = (
+                [doc for doc in deviation_result.docs if doc.score >= DEVIATION_MIN_SCORE]
+                if deviation_result is not None
+                else []
+            )
+            await safe_send_json(
+                websocket,
+                {"type": "deviation_update", "deviations": [deviation_payload(doc) for doc in deviation_docs]},
+                send_lock,
+            )
+            if deviation_result is not None:
+                await safe_send_json(
+                    websocket,
+                    dev_log_payload(
+                        "moss",
+                        "deviation-query",
+                        deviation_result.time_taken_ms,
+                        f"{len(deviation_result.docs)} retrieved → {len(deviation_docs)} above {DEVIATION_MIN_SCORE}",
+                    ),
+                    send_lock,
+                )
 
             rule_fields = extract_rule_fields(text)
             await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)

@@ -38,3 +38,21 @@ Caveats (unverified, mocked only):
 - Real DeepSeek verdict quality (prompt accuracy for followed vs deviated) is unverified.
 - Real Moss `create_index` / `add_docs` behavior is unverified against a live project.
 - `load_index` reload semantics (whether it makes new docs retrievable) are unverified.
+
+## MOS-STORY-002-003: Deviation retrieval on live call
+
+Command: `cd backend && uv run pytest --ignore=tests/e2e -q`
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit/feature (`transcript_worker` via `/ws` TestClient with fake `moss_client`, mocked `extract_llm_fields`; judge-endpoint integration) | 8 passed, 0 failed |
+| E2E | skipped: no user-facing surface in this story (no UI change) |
+| Full backend suite (excluding tests/e2e) | 79 passed, 0 failed (8 new in `backend/test_deviation_retrieval.py`) |
+
+Acceptance criteria mapping: AC1 both queries recorded with identical trailing-window text, top_k 1 (protocol) and 2 (deviation); AC2 score below cutoff dropped, exactly `DEVIATION_MIN_SCORE` kept, all-below yields empty list, max 2 sent; AC3 payload keys id/summary/dispatcherTranscript/reason/timestamp/score and ordering after `protocol_update`; AC4 `moss`/`deviation-query` dev_log with latency; AC5 raising deviation query gives empty `deviation_update`, no deviation dev_log, `protocol_update` identical to the healthy run; AC6 stateful fake client: POST `/api/deviations/judge` then a later transcript on the same app returns the new deviation (empty before).
+
+Caveats (unverified):
+- `DEVIATION_MIN_SCORE=0.3` is an untuned guess and the real Moss score scale is unverified.
+- Retrieval was tested only with a mocked Moss client; real query ranking/latency and real `load_index` making new docs retrievable are unverified.

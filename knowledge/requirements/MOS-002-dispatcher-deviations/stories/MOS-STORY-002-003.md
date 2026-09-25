@@ -31,6 +31,6 @@ As a dispatcher, I want related past deviations retrieved for the current caller
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed
