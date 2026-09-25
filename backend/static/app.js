@@ -22,6 +22,8 @@ const dispatcherInput = document.getElementById("dispatcherInput");
 const dispatcherReason = document.getElementById("dispatcherReason");
 const dispatcherSubmit = document.getElementById("dispatcherSubmit");
 const dispatcherHelper = document.getElementById("dispatcherHelper");
+const dispatcherMicButton = document.getElementById("dispatcherMicButton");
+const dispatcherVoiceStatus = document.getElementById("dispatcherVoiceStatus");
 const verdictSlot = document.getElementById("verdictSlot");
 
 const DEV_FEED_MAX_ENTRIES = 40;
@@ -279,8 +281,11 @@ function connect() {
       renderDevLog(msg);
     } else if (msg.type === "voice_transcript") {
       transcriptInput.value = msg.text;
+    } else if (msg.type === "dispatcher_voice_transcript") {
+      handleDispatcherTranscript(msg);
     } else if (msg.type === "voice_status") {
-      handleVoiceStatus(msg);
+      if (msg.channel === "dispatcher") handleDispatcherVoiceStatus(msg);
+      else handleVoiceStatus(msg);
     }
   };
 
@@ -307,6 +312,11 @@ const AUDIO_CHUNK_MS = 100;
 
 let stopActiveVoice = null;
 let voiceReadyResolver = null;
+let isCallerVoiceBusy = false;
+let dispatcherVoice = null;
+let dispatcherReadyResolver = null;
+let dispatcherBaseText = "";
+const CALLER_BUSY_HINT = "Stop the caller mic or sample call to use the dispatcher mic";
 
 function setVoiceStatus(text, isError = false) {
   voiceStatus.textContent = text;
@@ -343,37 +353,52 @@ function endVoiceSession() {
   micButton.disabled = false;
   sampleButton.disabled = false;
   setVoiceStatus("");
+  setCallerVoiceBusy(false);
 }
 
-async function startMic() {
-  micButton.disabled = true;
-  sampleButton.disabled = true;
-  let mediaStream;
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-  } catch {
-    setVoiceStatus("Microphone access was denied", true);
-    micButton.disabled = false;
-    sampleButton.disabled = false;
-    return;
-  }
-  if (!(await beginVoiceSession())) {
-    mediaStream.getTracks().forEach((track) => track.stop());
-    micButton.disabled = false;
-    sampleButton.disabled = false;
-    return;
-  }
+function requestMicStream() {
+  return navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+}
 
+async function startPcmCapture(mediaStream) {
   const audioContext = new AudioContext({ sampleRate: 16000 });
   await audioContext.audioWorklet.addModule("pcm-worklet.js");
   const source = audioContext.createMediaStreamSource(mediaStream);
   const worklet = new AudioWorkletNode(audioContext, "pcm-processor");
   worklet.port.onmessage = (event) => ws.send(event.data);
   source.connect(worklet);
-
-  stopActiveVoice = () => {
+  return () => {
     mediaStream.getTracks().forEach((track) => track.stop());
     audioContext.close();
+  };
+}
+
+async function startMic() {
+  micButton.disabled = true;
+  sampleButton.disabled = true;
+  setCallerVoiceBusy(true);
+  let mediaStream;
+  try {
+    mediaStream = await requestMicStream();
+  } catch {
+    setVoiceStatus("Microphone access was denied", true);
+    micButton.disabled = false;
+    sampleButton.disabled = false;
+    setCallerVoiceBusy(false);
+    return;
+  }
+  if (!(await beginVoiceSession())) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    micButton.disabled = false;
+    sampleButton.disabled = false;
+    setCallerVoiceBusy(false);
+    return;
+  }
+
+  const stopCapture = await startPcmCapture(mediaStream);
+
+  stopActiveVoice = () => {
+    stopCapture();
     endVoiceSession();
   };
   micButton.disabled = false;
@@ -397,11 +422,13 @@ function findWavPcmData(buffer) {
 async function startSample() {
   micButton.disabled = true;
   sampleButton.disabled = true;
+  setCallerVoiceBusy(true);
   const wavBuffer = await (await fetch(SAMPLE_CALL_URL)).arrayBuffer();
   const pcm = findWavPcmData(wavBuffer);
   if (!(await beginVoiceSession())) {
     micButton.disabled = false;
     sampleButton.disabled = false;
+    setCallerVoiceBusy(false);
     return;
   }
 
@@ -432,6 +459,102 @@ async function startSample() {
 micButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startMic());
 sampleButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startSample());
 
+function setDispatcherVoiceStatus(text, isError = false) {
+  dispatcherVoiceStatus.textContent = text;
+  dispatcherVoiceStatus.className = "voice-status" + (isError ? " error" : "");
+}
+
+function refreshVoiceLocks() {
+  const isDispatcherActive = dispatcherVoice !== null;
+  const isDispatcherStarting = isDispatcherActive && !dispatcherVoice.stop;
+  const isBlockedByCaller = isCallerVoiceBusy && !isDispatcherActive;
+  dispatcherMicButton.disabled = isBlockedByCaller || isDispatcherStarting;
+  dispatcherMicButton.title = isBlockedByCaller ? CALLER_BUSY_HINT : "";
+  dispatcherMicButton.classList.toggle("active", isDispatcherActive && !isDispatcherStarting);
+  dispatcherMicButton.setAttribute("aria-pressed", String(isDispatcherActive && !isDispatcherStarting));
+  dispatcherMicButton.textContent = isDispatcherActive && !isDispatcherStarting ? "Stop dispatcher mic" : "Start dispatcher mic";
+  if (isBlockedByCaller) setDispatcherVoiceStatus(CALLER_BUSY_HINT);
+  else if (dispatcherVoiceStatus.textContent === CALLER_BUSY_HINT) setDispatcherVoiceStatus("");
+  if (isDispatcherActive) {
+    micButton.disabled = true;
+    sampleButton.disabled = true;
+  }
+  mockFollowsButton.disabled = isDispatcherActive;
+  mockDeviatesButton.disabled = isDispatcherActive;
+  updateSubmitState();
+}
+
+function setCallerVoiceBusy(isBusy) {
+  isCallerVoiceBusy = isBusy;
+  refreshVoiceLocks();
+}
+
+function endDispatcherVoice({ notifyServer }) {
+  if (dispatcherVoice === null) return;
+  if (dispatcherVoice.stop) dispatcherVoice.stop();
+  if (notifyServer && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "voice_stop", channel: "dispatcher" }));
+  }
+  dispatcherVoice = null;
+  micButton.disabled = false;
+  sampleButton.disabled = false;
+  refreshVoiceLocks();
+}
+
+function handleDispatcherVoiceStatus(msg) {
+  if (msg.state === "listening") {
+    if (dispatcherReadyResolver) dispatcherReadyResolver(true);
+    return;
+  }
+  if (msg.state === "unavailable" || msg.state === "error") {
+    setDispatcherVoiceStatus(msg.reason || "Dispatcher voice is unavailable", true);
+  }
+  if (dispatcherReadyResolver) dispatcherReadyResolver(false);
+  else endDispatcherVoice({ notifyServer: false });
+}
+
+function handleDispatcherTranscript(msg) {
+  if (dispatcherVoice === null) return;
+  dispatcherInput.value = dispatcherBaseText ? `${dispatcherBaseText} ${msg.text}` : msg.text;
+  clearMockSelection();
+  updateSubmitState();
+}
+
+async function startDispatcherMic() {
+  dispatcherVoice = { stop: null };
+  refreshVoiceLocks();
+  setDispatcherVoiceStatus("");
+  let mediaStream;
+  try {
+    mediaStream = await requestMicStream();
+  } catch {
+    setDispatcherVoiceStatus("Microphone access was denied", true);
+    endDispatcherVoice({ notifyServer: false });
+    return;
+  }
+  const ready = new Promise((resolve) => {
+    dispatcherReadyResolver = resolve;
+  });
+  dispatcherBaseText = dispatcherInput.value.trim();
+  ws.send(JSON.stringify({ type: "voice_start", channel: "dispatcher" }));
+  const ok = await ready;
+  dispatcherReadyResolver = null;
+  if (!ok) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    endDispatcherVoice({ notifyServer: false });
+    return;
+  }
+  dispatcherVoice.stop = await startPcmCapture(mediaStream);
+  setDispatcherVoiceStatus("Listening…");
+  refreshVoiceLocks();
+}
+
+dispatcherMicButton.onclick = () => {
+  if (dispatcherVoice === null) startDispatcherMic();
+  else endDispatcherVoice({ notifyServer: true });
+  if (dispatcherVoice === null) setDispatcherVoiceStatus("");
+};
+
 const MOCK_REPLY_FOLLOWS =
   "Lean him forward and give five firm back blows, then five abdominal thrusts. Keep alternating until he coughs it out.";
 const MOCK_REPLY_DEVIATES = "Give him a glass of water to wash it down and have him sit and rest.";
@@ -440,7 +563,7 @@ let onScreenChunk = null;
 let isJudging = false;
 
 function canSubmitReply() {
-  return !isJudging && onScreenChunk !== null && dispatcherInput.value.trim() !== "";
+  return !isJudging && dispatcherVoice === null && onScreenChunk !== null && dispatcherInput.value.trim() !== "";
 }
 
 function updateSubmitState() {

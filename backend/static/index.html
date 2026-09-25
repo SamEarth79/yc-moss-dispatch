@@ -46,10 +46,12 @@
       ></textarea>
 
       <h2 class="section-gap">Dispatcher Transcript</h2>
-      <div class="voice-controls" role="group" aria-label="Demo replies">
+      <div class="voice-controls" role="group" aria-label="Dispatcher input controls">
         <button id="mockFollowsButton" class="voice-button" type="button" aria-pressed="false">Demo: simulate reply that follows protocol</button>
         <button id="mockDeviatesButton" class="voice-button" type="button" aria-pressed="false">Demo: simulate reply that deviates</button>
+        <button id="dispatcherMicButton" class="voice-button" type="button" aria-pressed="false">Start dispatcher mic</button>
       </div>
+      <p id="dispatcherVoiceStatus" class="voice-status" role="status"></p>
       <label class="field-label" for="dispatcherInput">Dispatcher reply</label>
       <textarea
         id="dispatcherInput"

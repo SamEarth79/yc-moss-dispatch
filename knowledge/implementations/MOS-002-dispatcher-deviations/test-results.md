@@ -97,3 +97,27 @@ Caveats (unverified):
 - E2E runs against stubs: the real LLM verdict and the real WebSocket/protocol matching were not exercised together with the UI.
 - Keyboard-only and screen-reader behaviour is asserted only via attributes (`aria-disabled`, `aria-pressed`, `role`, label association), not with assistive technology.
 - Google Fonts are blocked in tests, so final visual rendering was not verified.
+
+## MOS-STORY-002-005 — Dispatcher voice channel
+
+Verdict: PASS WITH CAVEATS. Initial run failed one existing story-004 test (`test_panel_renders_with_labelled_controls`, strict-mode label collision from the group's aria-label "Dispatcher reply input"); fixed by relabelling the group "Dispatcher input controls". Re-run of the full suite: 154 passed, 0 failed. Caveats: real Deepgram ASR and real microphone/speaker-bleed behaviour are unverified.
+
+| Layer | Result |
+|---|---|
+| Feature (backend; `backend/test_dispatcher_voice.py`, TestClient websocket with monkeypatched `server.DeepgramStream` fake) | 11 passed, 0 failed |
+| E2E (Playwright/Chromium; `backend/tests/e2e/test_dispatcher_mic.py`) | 11 passed, 0 failed |
+| Full suite `cd backend && uv run pytest -q` | 153 passed, 1 failed (154 total) |
+
+Failure: `tests/e2e/test_dispatcher_panel.py::test_panel_renders_with_labelled_controls` (story 002-004). `get_by_label("Dispatcher reply")` now matches two elements (strict-mode violation): the textarea and the `.voice-controls` group, whose `aria-label` this story changed from "Demo replies" to "Dispatcher reply input" in `index.html`. Fix options for the orchestrator: give the group a label that does not contain "Dispatcher reply" (e.g. "Dispatcher input controls"), or make the old test locator exact. The test was not edited.
+
+Microphone approach (E2E): real Chromium fake-media path, not a JS override. The test launches its own Chromium with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream` and grants the microphone, so the real `getUserMedia`, `AudioContext` and `pcm-worklet.js` run and binary PCM frames reach the stub (asserted `> 0`). Only the denial test overrides `navigator.mediaDevices.getUserMedia` to reject. The browser is launched per test (a session-shared browser started by earlier test files lacked the flags).
+
+Acceptance mapping:
+- AC1: backend tests for channel default/dispatcher, separate stream per channel, `dispatcher_voice_transcript {text,isFinal}`, never sets latest transcript or reaches the transcript worker (Moss never queried), caller `voice_transcript` and `protocol_update` regression, unknown channel gives `voice_status error "unknown voice channel"` for start and stop with the session still alive, unavailable path per channel (dispatcher tagged `channel`, caller untagged), audio routing (dispatcher if open, else caller), restart stops only that channel's previous stream, disconnect stops both.
+- AC2: accessible name "Start dispatcher mic"/"Stop dispatcher mic", `aria-pressed`, `role=status` line, "Listening…", live text appended after existing text (no leading space when empty), and not written to `#transcriptInput`.
+- AC3: caller mic regression (`voice_start`/`voice_stop` without channel, caller status line, PCM frames, `voice_transcript` fills `#transcriptInput`).
+- AC4: caller mic active gives dispatcher mic disabled with title and status hint; restored on caller stop. Dispatcher listening gives `#micButton`, `#sampleButton` disabled. The sample call's own start path was not driven separately.
+- AC5: denial and `unavailable` errors appear only in `#dispatcherVoiceStatus` (error class); `#voiceStatus` stays empty; caller `unavailable` stays in the caller line.
+- AC6: mock buttons disabled and Submit `aria-disabled=true` (forced click sends nothing) while listening; all restored on stop.
+
+Caveats (unverified): real Deepgram ASR was never exercised (fake stream class and stub `/ws` only); real microphone input and speaker-bleed/echo behaviour between caller playback and the dispatcher mic are unverified (Chromium synthetic beep device). Hence PASS WITH CAVEATS once the failure above is resolved. Waits are Playwright assertions or a polling helper with a fixed deadline for the frame counter; no fixed sleeps.

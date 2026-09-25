@@ -397,7 +397,10 @@ async def ws_session(websocket: WebSocket):
     transcript_ready = asyncio.Event()
     worker_task = asyncio.create_task(transcript_worker(websocket, send_lock, latest_transcript, transcript_ready))
 
-    voice = {"stream": None}
+    voice = {"caller": None, "dispatcher": None}
+
+    async def handle_dispatcher_voice_transcript(full_text: str, is_final: bool):
+        await safe_send_json(websocket, {"type": "dispatcher_voice_transcript", "text": full_text, "isFinal": is_final}, send_lock)
 
     async def handle_voice_transcript(full_text: str, is_final: bool):
         latest_transcript["text"] = full_text
@@ -412,27 +415,40 @@ async def ws_session(websocket: WebSocket):
             if frame["type"] == "websocket.disconnect":
                 break
             if frame.get("bytes") is not None:
-                if voice["stream"] is not None:
-                    await voice["stream"].send_audio(frame["bytes"])
+                # Binary frames carry no channel tag; the frontend runs only one mic at a time,
+                # so they go to the dispatcher stream when open, otherwise the caller stream.
+                active_stream = voice["dispatcher"] or voice["caller"]
+                if active_stream is not None:
+                    await active_stream.send_audio(frame["bytes"])
                 continue
             msg = json.loads(frame["text"])
 
+            if msg["type"] in ("voice_start", "voice_stop"):
+                channel = msg.get("channel", "caller")
+                if channel not in voice:
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "error", "reason": "unknown voice channel"}, send_lock)
+                    continue
+                status_extra = {"channel": "dispatcher"} if channel == "dispatcher" else {}
+
             if msg["type"] == "voice_start":
-                stream = DeepgramStream(handle_voice_transcript)
+                on_transcript = handle_dispatcher_voice_transcript if channel == "dispatcher" else handle_voice_transcript
+                stream = DeepgramStream(on_transcript)
                 try:
                     await stream.start()
                 except VoiceStreamUnavailable as exc:
-                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": str(exc)}, send_lock)
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": str(exc), **status_extra}, send_lock)
                     continue
-                voice["stream"] = stream
-                await safe_send_json(websocket, {"type": "voice_status", "state": "listening"}, send_lock)
+                if voice[channel] is not None:
+                    await voice[channel].stop()
+                voice[channel] = stream
+                await safe_send_json(websocket, {"type": "voice_status", "state": "listening", **status_extra}, send_lock)
                 await safe_send_json(websocket, dev_log_payload("asr", "stream-open", None, "live speech-to-text connected"), send_lock)
 
             elif msg["type"] == "voice_stop":
-                if voice["stream"] is not None:
-                    await voice["stream"].stop()
-                    voice["stream"] = None
-                await safe_send_json(websocket, {"type": "voice_status", "state": "stopped"}, send_lock)
+                if voice[channel] is not None:
+                    await voice[channel].stop()
+                    voice[channel] = None
+                await safe_send_json(websocket, {"type": "voice_status", "state": "stopped", **status_extra}, send_lock)
 
             if msg["type"] == "set_caller":
                 address = msg["address"]
@@ -465,8 +481,9 @@ async def ws_session(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        if voice["stream"] is not None:
-            await voice["stream"].stop()
+        for stream in voice.values():
+            if stream is not None:
+                await stream.stop()
         status_task.cancel()
         worker_task.cancel()
 

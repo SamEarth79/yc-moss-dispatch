@@ -31,6 +31,6 @@ As a dispatcher, I want to speak my reply with a mic, so that I can dictate it i
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed
