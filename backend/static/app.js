@@ -3,6 +3,8 @@ const statusText = document.getElementById("statusText");
 const clockEl = document.getElementById("clock");
 const transcriptInput = document.getElementById("transcriptInput");
 const extractionFields = document.getElementById("extractionFields");
+const jevTag = document.getElementById("jevTag");
+const jevStatus = document.getElementById("jevStatus");
 const priorityBadge = document.getElementById("priorityBadge");
 const instructionText = document.getElementById("instructionText");
 const deviationList = document.getElementById("deviationList");
@@ -120,10 +122,25 @@ function patientsSeverity(value) {
   return typeof value === "number" && value > 1 ? "warn" : "neutral";
 }
 
-function makeRow(label, value, severity) {
+function makeRow(label, value, severity, { changed = false, viaJev = false } = {}) {
   const row = document.createElement("div");
-  row.className = `kv-row kv-row--${severity}`;
-  row.innerHTML = `<span class="kv-key">${label}</span><span class="kv-value">${isEmpty(value) ? "—" : String(value)}</span>`;
+  row.className = `kv-row kv-row--${severity}${changed ? " kv-row--changed" : ""}`;
+  const key = document.createElement("span");
+  key.className = "kv-key";
+  key.textContent = label;
+  const val = document.createElement("span");
+  val.className = "kv-value";
+  if (viaJev) {
+    const dot = document.createElement("span");
+    dot.className = "jev-dot";
+    dot.title = "Refined by Jev";
+    const hint = document.createElement("span");
+    hint.className = "visually-hidden";
+    hint.textContent = "refined by Jev";
+    val.append(dot, hint);
+  }
+  val.append(isEmpty(value) ? "—" : String(value));
+  row.append(key, val);
   return row;
 }
 
@@ -133,17 +150,38 @@ function yesNo(value, yesWhen) {
 
 let latestFields = {};
 
-function renderExtraction(fields) {
+let previousRowValues = null;
+
+function renderExtraction(fields, { reset = false } = {}) {
   latestFields = fields;
   extractionFields.innerHTML = "";
+  if (reset) previousRowValues = null;
 
+  const sources = fields.sources ?? {};
   const departments = fields.departments ?? [];
-  extractionFields.appendChild(makeRow("What", fields.whatHappened, "neutral"));
-  extractionFields.appendChild(makeRow("Where", callerSelect.value, "neutral"));
-  extractionFields.appendChild(makeRow("Department", departments.join(", "), "neutral"));
-  extractionFields.appendChild(makeRow("Patients", fields.numberOfPatients, patientsSeverity(fields.numberOfPatients)));
-  extractionFields.appendChild(makeRow("Weapons", yesNo(fields.weapons, true), weaponsSeverity(fields.weapons)));
-  extractionFields.appendChild(makeRow("Conscious", yesNo(fields.consciousness, "conscious"), consciousnessSeverity(fields.consciousness)));
+  const rows = [
+    { key: "whatHappened", label: "What", value: fields.whatHappened, severity: "neutral" },
+    { key: "where", label: "Where", value: callerSelect.value, severity: "neutral" },
+    { key: "departments", label: "Department", value: departments.join(", "), severity: "neutral" },
+    { key: "numberOfPatients", label: "Patients", value: fields.numberOfPatients, severity: patientsSeverity(fields.numberOfPatients) },
+    { key: "weapons", label: "Weapons", value: yesNo(fields.weapons, true), severity: weaponsSeverity(fields.weapons) },
+    { key: "consciousness", label: "Conscious", value: yesNo(fields.consciousness, "conscious"), severity: consciousnessSeverity(fields.consciousness) },
+  ];
+
+  const announcements = [];
+  const nextValues = {};
+  for (const row of rows) {
+    const shown = isEmpty(row.value) ? "—" : String(row.value);
+    nextValues[row.key] = shown;
+    const changed = previousRowValues !== null && previousRowValues[row.key] !== shown;
+    const viaJev = sources[row.key] === "jev";
+    if (changed && viaJev) announcements.push(`${row.label} updated to ${shown} by Jev`);
+    extractionFields.appendChild(makeRow(row.label, row.value, row.severity, { changed: changed && viaJev, viaJev }));
+  }
+  previousRowValues = nextValues;
+
+  jevTag.hidden = Object.keys(sources).length === 0;
+  if (announcements.length > 0) jevStatus.textContent = announcements.join(". ");
 }
 
 function renderInstructionSteps(text) {
@@ -283,7 +321,8 @@ function setupCallerSelect() {
     callerSelect.appendChild(opt);
   }
   callerSelect.onchange = () => {
-    renderExtraction(latestFields);
+    jevStatus.textContent = "";
+    renderExtraction({ ...latestFields, sources: {} }, { reset: true });
     resetDispatcherPanel();
     renderDeviations([]);
     ws.send(JSON.stringify({ type: "set_caller", address: callerSelect.value }));

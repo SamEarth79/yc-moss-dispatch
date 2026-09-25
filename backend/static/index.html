@@ -70,8 +70,12 @@
 
     <div class="middle-column">
       <section class="panel summary-panel">
-        <span class="source-tag source-tag--llm">LLM generated</span>
+        <div class="source-tag-group">
+          <span id="jevTag" class="source-tag source-tag--jev" title="Some values refined by Jev decision model" aria-label="Some values refined by Jev decision model" hidden>Jev</span>
+          <span class="source-tag source-tag--llm">LLM generated</span>
+        </div>
         <h2>Structured Summary</h2>
+        <div id="jevStatus" class="visually-hidden" role="status" aria-live="polite"></div>
         <div id="extractionFields" class="kv-list"></div>
       </section>
 

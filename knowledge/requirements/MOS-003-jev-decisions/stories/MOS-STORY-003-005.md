@@ -30,6 +30,6 @@ As a viewer, I want to see when Jev refined a value, so that the model's contrib
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

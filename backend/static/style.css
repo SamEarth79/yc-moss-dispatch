@@ -176,6 +176,56 @@ main {
   text-transform: none;
 }
 
+.source-tag-group {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-tag-group .source-tag {
+  position: static;
+}
+
+.source-tag--jev {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--color-lavender);
+}
+
+.source-tag--jev[hidden] {
+  display: inline-block;
+  visibility: hidden;
+}
+
+.summary-panel > h2 {
+  padding-right: 180px;
+}
+
+.jev-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: var(--radius-pills);
+  background: var(--color-lavender);
+  vertical-align: middle;
+}
+
+.kv-row--changed {
+  animation: kv-row-flash 600ms ease-out;
+}
+
+@keyframes kv-row-flash {
+  from { background-color: rgba(139, 92, 246, 0.15); }
+  to { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kv-row--changed { animation: none; }
+}
+
 .source-tag--moss {
   background: rgba(2, 184, 204, 0.15);
   color: var(--color-signal-teal);

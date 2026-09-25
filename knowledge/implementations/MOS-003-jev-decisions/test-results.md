@@ -63,3 +63,21 @@ Live-run findings (websocket run) and fixes, MOS-STORY-003-004:
 - Stale sticky: a sticky Jev override (weapons=False) masked a fresher rule value (weapons=True on "knife") until the next Jev answer. Each override now stores the rule value it was decided against and is applied (and kept) only while the current rule value equals it; otherwise it is dropped. Tests: stale sticky dropped through the worker, sticky still applies when rule unchanged, direct payload test incl. departments.
 - Unknown != no: Jev turned a None rule value into a definite "no" (weapons) / "conscious". A confident-False answer now applies only when the rule value is not None; confident-True still applies from None; jev_confident_fields(answers, rule_fields) treats an ignored False as not confident. Dev-feed now renders None as "unknown". Tests updated (merge, worker summary strings) and added.
 - Full suite: 268 passed, 0 failed.
+
+## MOS-STORY-003-005: Jev tag in the summary panel
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit | Skipped: frontend-only DOM/CSS change, no new pure logic module; behavior covered at E2E |
+| Feature | Covered by E2E against the real static files (no separate layer for static UI) |
+| E2E (Playwright, `backend/tests/e2e/test_jev_tag.py`, own stub app with /ws pushing extraction_update and recording set_caller) | 18 passed, 0 failed (no tag before override; none for sources {} or absent; tag with exact title/aria-label and LLM tag retained; dots only on Jev rows with hidden "refined by Jev" text; `.kv-row--changed` only on Jev-sourced AND changed rows, not on plain rule change, not on unchanged Jev row; #jevStatus text only for Jev change, not plain change or first render; tag/dots/status cleared on caller change and set_caller sent; reduced motion -> animation-name none, normal motion -> kv-row-flash 0.6s; row and panel heights unchanged with dots/tag; heading text and tag group do not overlap; whatHappened rendered as text) |
+| Existing e2e | 93 passed total in tests/e2e (75 pre-existing, all still green) |
+| Non-e2e | 268 passed |
+| Full suite (`cd backend && uv run pytest -q`) | 361 passed, 0 failed |
+
+Caveats:
+- E2E runs against a stub /ws; not verified with real Jev output in a real browser.
+- Lavender tag text contrast was computed, not measured by a tool.
+- Observation: the initial page render (renderExtraction({})) seeds previous values, so the first extraction_update after load compares against empty values; the "no cue on first render" guarantee is tested for the initial render and for the first render after a caller reset.
