@@ -24,3 +24,7 @@ Tests are in backend/test_deviation_judge.py; an autouse fixture in the new back
 - AC6: existing tests unchanged and passing; 172 passed in the full suite.
 
 Live check (orchestrator): follows reply -> Jev P(follows)=0.87 followed; deviating reply "water" -> P=0.01 deviated with summary "Advised water and rest instead of back blows and abdominal thrusts."; latency followed ~0.9 s cold, deviated ~1.75 s (Jev then DeepSeek in sequence). Automated tests are mock-only and only 2 live cases were tried. Verdict: PASS WITH CAVEATS.
+
+## MOS-STORY-003-003 - QA note: what was tested and why
+
+backend/test_jev_merge.py exercises merge_jev_fields as a pure function. It covers the threshold bands (exact 0.7 and 0.3 boundaries, uncertain zone keeps the rule value), field mapping (weapon, unconscious, patients, departments in canonical order), the sources map (only set when a value actually changes), safe handling of None/empty answers, and input immutability. Two realistic scenarios (sample call, no-injury gas leak) guard the end-to-end intent. No network is used. Caveat: the thresholds were validated on few real cases and are unverified at scale.

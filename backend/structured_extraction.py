@@ -12,6 +12,8 @@ import re
 
 from openai import AsyncOpenAI
 
+from jev_client import JEV_CONFIDENCE_HIGH, JEV_CONFIDENCE_LOW
+
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-flash"
 
@@ -92,6 +94,53 @@ def extract_rule_fields(transcript: str) -> dict:
         departments.append("Fire")
 
     return {"numberOfPatients": patients, "consciousness": consciousness, "weapons": weapons, "departments": departments}
+
+
+DEPARTMENT_ANSWER_KEYS = (("police", "Police"), ("ems", "Emergency Medical"), ("fire", "Fire"))
+
+
+def _confident_bool(probability: float | None) -> bool | None:
+    if probability is None:
+        return None
+    if probability >= JEV_CONFIDENCE_HIGH:
+        return True
+    if probability <= JEV_CONFIDENCE_LOW:
+        return False
+    return None
+
+
+def _merge_departments(rule_departments: list, jev_answers: dict) -> list:
+    members = set(rule_departments)
+    for answer_key, department in DEPARTMENT_ANSWER_KEYS:
+        verdict = _confident_bool(jev_answers.get(answer_key))
+        if verdict is True:
+            members.add(department)
+        elif verdict is False:
+            members.discard(department)
+    return [department for _, department in DEPARTMENT_ANSWER_KEYS if department in members]
+
+
+def merge_jev_fields(rule_fields: dict, jev_answers: dict | None) -> tuple[dict, dict]:
+    fields = {**rule_fields, "departments": list(rule_fields.get("departments", []))}
+    if not jev_answers:
+        return fields, {}
+
+    weapons = _confident_bool(jev_answers.get("weapon"))
+    if weapons is not None:
+        fields["weapons"] = weapons
+
+    unconscious = _confident_bool(jev_answers.get("unconscious"))
+    if unconscious is not None:
+        fields["consciousness"] = "unconscious" if unconscious else "conscious"
+
+    patients = jev_answers.get("patients")
+    if patients is not None and patients[1] >= JEV_CONFIDENCE_HIGH:
+        fields["numberOfPatients"] = int(patients[0])
+
+    fields["departments"] = _merge_departments(fields["departments"], jev_answers)
+
+    sources = {name: "jev" for name, value in fields.items() if value != rule_fields.get(name)}
+    return fields, sources
 
 
 SYSTEM_PROMPT = """You summarize a live 911 call transcript for a dispatcher's screen. The transcript \

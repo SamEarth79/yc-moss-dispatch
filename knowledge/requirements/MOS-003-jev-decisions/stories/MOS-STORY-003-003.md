@@ -32,6 +32,6 @@ As a dispatcher, I want Jev's confident answers to correct the rule-based summar
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

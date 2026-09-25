@@ -29,3 +29,17 @@ Isolation: new backend/conftest.py has an autouse fixture that replaces deviatio
 Caveats (external-contract assumption, per rules/testing.md):
 - The orchestrator ran one live end-to-end check with real Jev and DeepSeek. A reply that follows the protocol got Jev P(follows)=0.87 -> followed. A deviating reply ("water") got P=0.01 -> deviated with summary "Advised water and rest instead of back blows and abdominal thrusts." Latency: followed ~0.9 s on a cold client; deviated ~1.75 s because Jev and DeepSeek run one after the other.
 - The automated tests are mock-only, and only 2 live cases were tried. Real Jev verdict quality, and the 0.3 threshold, are not verified beyond those cases.
+
+## MOS-STORY-003-003 - Merge Jev answers into rule fields
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit (backend/test_jev_merge.py, pure function, no network) | 36 passed, 0 failed (yes/no bands with exact 0.7 and 0.3 boundaries and 0.31-0.69 uncertain; weapon->weapons; unconscious->consciousness labels; patients 0.7 boundary, 0.69 ignored, '0' and '10', rule None replaced; departments add/remove/uncertain, canonical order, removal of a rule-added department; sources only on change; None/empty answers give an equal non-identical copy and {}; partial answers; no input mutation; key parity; sample-call and no-injury gas-leak scenarios) |
+| Feature | Not applicable: pure function, not yet wired into an endpoint |
+| E2E (Playwright) | Skipped: no user-facing UI change |
+| Full suite (`cd backend && uv run pytest --ignore=tests/e2e -q`) | 208 passed, 0 failed (was 172) |
+
+Caveats:
+- Pure-logic unit tests only. The confidence thresholds (0.7 / 0.3) were validated in the design session on a few real cases and are unverified at scale.
