@@ -1,0 +1,4 @@
+
+## MOS-STORY-002-001: Deviation index + seed (QA note)
+
+What was tested and why: `backend/test_deviation_index.py` validates the seed data contract (3-4 records, `type: deviation`, `seed: "true"`, all-string metadata, `protocolChunkId` values that exist in `protocol_chunks.py`) because Moss metadata must be strings and broken chunk references would silently degrade retrieval. Lifespan tests use a fake MossClient to prove the server still starts, and unloads only what loaded, when the deviation index reports failure or raises, while a required-index failure still raises. Further tests cover LIVE_LOADED_INDEXES membership, reload-on-mutation for `deviation-index`, and `/api/indexes` listing. No E2E: no user-facing surface. The build script and real Moss index creation are unverified against a live Moss project.

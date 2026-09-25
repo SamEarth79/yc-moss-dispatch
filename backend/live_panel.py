@@ -21,6 +21,7 @@ from query_nearest_facility import nearest_facility
 
 PROTOCOL_INDEX_NAME = "protocol-index"
 LIVE_DATA_INDEX_NAME = "live-data-index"
+DEVIATION_INDEX_NAME = "deviation-index"
 
 CALL_SCRIPT = (
     "my dad is choking on food he can't speak and he's turning blue and now he's collapsed"

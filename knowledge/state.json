@@ -6,12 +6,33 @@
       "design": "complete",
       "branch": "feature/MOS-001-index-management",
       "stories": {
-        "MOS-STORY-001-001": { "status": "committed", "step": null, "commit": "b59474e" },
-        "MOS-STORY-001-002": { "status": "committed", "step": null, "commit": "70abf15" },
-        "MOS-STORY-001-003": { "status": "committed", "step": null, "commit": "52099da" },
-        "MOS-STORY-001-004": { "status": "pending", "step": null, "commit": null }
+        "MOS-STORY-001-001": {
+          "status": "committed",
+          "step": null,
+          "commit": "b59474e"
+        },
+        "MOS-STORY-001-002": {
+          "status": "committed",
+          "step": null,
+          "commit": "70abf15"
+        },
+        "MOS-STORY-001-003": {
+          "status": "committed",
+          "step": null,
+          "commit": "52099da"
+        },
+        "MOS-STORY-001-004": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        }
       },
-      "pr": { "number": null, "url": null, "state": "none", "reviewCycles": 0 },
+      "pr": {
+        "number": null,
+        "url": null,
+        "state": "none",
+        "reviewCycles": 0
+      },
       "asana": {
         "epicGid": "1218634557845085",
         "stories": {
@@ -21,7 +42,70 @@
           "MOS-STORY-001-004": "1218634558372804"
         }
       }
+    },
+    "MOS-002-dispatcher-deviations": {
+      "design": "complete",
+      "branch": "feature/MOS-002-dispatcher-deviations",
+      "stories": {
+        "MOS-STORY-002-001": {
+          "status": "tested",
+          "step": "commit",
+          "commit": null
+        },
+        "MOS-STORY-002-002": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-002-003": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-002-004": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-002-005": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-002-006": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-002-007": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        }
+      },
+      "pr": {
+        "number": null,
+        "url": null,
+        "state": "none",
+        "reviewCycles": 0
+      },
+      "asana": {
+        "epicGid": "1218860311271205",
+        "stories": {
+          "MOS-STORY-002-001": "1218860517578164",
+          "MOS-STORY-002-002": "1218860517714121",
+          "MOS-STORY-002-003": "1218860517810008",
+          "MOS-STORY-002-004": "1218860647406111",
+          "MOS-STORY-002-005": "1218860548562723",
+          "MOS-STORY-002-006": "1218860540348717",
+          "MOS-STORY-002-007": "1218860548213923"
+        }
+      }
     }
   },
-  "resume": { "feature": null, "story": null, "note": null }
+  "resume": {
+    "feature": null,
+    "story": null,
+    "note": null
+  }
 }

@@ -36,7 +36,13 @@ from moss import DocumentInfo, MossClient, QueryOptions
 from pydantic import BaseModel, field_validator
 from starlette.websockets import WebSocketState
 
-from live_panel import LIVE_DATA_INDEX_NAME, PROTOCOL_INDEX_NAME, WINDOW_WORDS, trailing_window
+from live_panel import (
+    DEVIATION_INDEX_NAME,
+    LIVE_DATA_INDEX_NAME,
+    PROTOCOL_INDEX_NAME,
+    WINDOW_WORDS,
+    trailing_window,
+)
 from query_nearest_facility import haversine_miles, nearest_facility
 from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
@@ -122,9 +128,21 @@ async def lifespan(app: FastAPI):
         if retry.failed:
             raise RuntimeError(f"Failed to load indexes after retry: {retry.failed}")
 
+    loaded_indexes = list(index_names)
+
+    # Optional: a missing or broken deviation index must not take the server down.
+    try:
+        deviation_result = await moss_client.load_indexes([DEVIATION_INDEX_NAME], cache_path=cache_path)
+        if deviation_result.failed:
+            logger.warning("Deviation index not loaded: %s", deviation_result.failed)
+        else:
+            loaded_indexes.append(DEVIATION_INDEX_NAME)
+    except Exception:
+        logger.warning("Deviation index not loaded", exc_info=True)
+
     print("Indexes loaded. Ready for connections.")
     yield
-    await moss_client.unload_indexes([PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME])
+    await moss_client.unload_indexes(loaded_indexes)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -460,7 +478,7 @@ class UpdateDocRequest(BaseModel):
         return value
 
 
-LIVE_LOADED_INDEXES = {PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME}
+LIVE_LOADED_INDEXES = {PROTOCOL_INDEX_NAME, LIVE_DATA_INDEX_NAME, DEVIATION_INDEX_NAME}
 
 
 async def _reload_if_live(name: str) -> None:
