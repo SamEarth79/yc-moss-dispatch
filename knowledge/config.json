@@ -1,8 +1,9 @@
 {
   "prefix": "MOS",
-  "nextFeatureNumber": 3,
+  "nextFeatureNumber": 4,
   "nextStoryNumber": {
     "MOS-001-index-management": 5,
-    "MOS-002-dispatcher-deviations": 8
+    "MOS-002-dispatcher-deviations": 8,
+    "MOS-003-jev-decisions": 7
   }
 }
