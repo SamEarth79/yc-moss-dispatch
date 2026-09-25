@@ -25,7 +25,9 @@ import logging
 import os
 import random
 import time
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +35,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from moss import DocumentInfo, MossClient, QueryOptions
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from starlette.websockets import WebSocketState
 
 from live_panel import (
@@ -46,6 +48,7 @@ from live_panel import (
 from query_nearest_facility import haversine_miles, nearest_facility
 from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
+from deviation_judge import judge_deviation
 from structured_extraction import extract_llm_fields, extract_rule_fields
 
 NEAREST_FACILITIES_SHOWN = 3
@@ -535,6 +538,97 @@ async def delete_index_doc(name: str, doc_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete document")
 
     await _reload_if_live(name)
+
+
+class CallerSummary(BaseModel):
+    whatHappened: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class JudgeDeviationRequest(BaseModel):
+    dispatcherText: str = Field(max_length=2000)
+    reason: Optional[str] = Field(default=None, max_length=500)
+    protocolChunkId: str = Field(max_length=200)
+    protocolChunkText: str = Field(max_length=4000)
+    callerTranscript: str = Field(max_length=10000)
+    callerSummary: Optional[CallerSummary] = None
+
+    @field_validator("dispatcherText", "protocolChunkId", "protocolChunkText", "callerTranscript")
+    @classmethod
+    def not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
+
+
+def deviation_caller_situation(body: JudgeDeviationRequest) -> str:
+    transcript_tail = trailing_window(body.callerTranscript.strip(), WINDOW_WORDS)
+    what_happened = (body.callerSummary.whatHappened or "").strip() if body.callerSummary else ""
+    if not what_happened:
+        return transcript_tail
+    return f"{what_happened} {transcript_tail}"
+
+
+async def save_deviation(doc: DocumentInfo) -> None:
+    existing = await moss_client.list_indexes()
+    if any(index.name == DEVIATION_INDEX_NAME for index in existing):
+        await moss_client.add_docs(DEVIATION_INDEX_NAME, [doc])
+    else:
+        await moss_client.create_index(DEVIATION_INDEX_NAME, [doc])
+
+
+@app.post("/api/deviations/judge")
+async def judge_dispatcher_deviation(body: JudgeDeviationRequest):
+    reason = (body.reason or "").strip()
+
+    try:
+        verdict = await judge_deviation(
+            body.dispatcherText.strip(), reason or None, body.protocolChunkText, body.callerTranscript
+        )
+    except Exception:
+        logger.exception("Deviation judge call failed")
+        raise HTTPException(status_code=502, detail="Could not judge response")
+
+    if verdict is None:
+        raise HTTPException(status_code=503, detail="LLM not configured")
+
+    if verdict["verdict"] == "followed":
+        return {"verdict": "followed"}
+
+    summary = verdict["deviationSummary"]
+    doc_id = f"dev-{uuid.uuid4().hex}"
+    doc = DocumentInfo(
+        id=doc_id,
+        text=f"{deviation_caller_situation(body)}\n{summary}",
+        metadata={
+            "type": "deviation",
+            "callerTranscript": body.callerTranscript,
+            "callerSummary": json.dumps(body.callerSummary.model_dump() if body.callerSummary else {}),
+            "protocolChunkId": body.protocolChunkId,
+            "protocolChunkText": body.protocolChunkText,
+            "dispatcherTranscript": body.dispatcherText.strip(),
+            "deviationSummary": summary,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "seed": "false",
+        },
+    )
+
+    try:
+        await save_deviation(doc)
+    except Exception:
+        logger.exception("Failed to save deviation")
+        raise HTTPException(status_code=500, detail="Failed to save deviation")
+
+    try:
+        await moss_client.load_index(DEVIATION_INDEX_NAME)
+        retrievable = True
+    except Exception:
+        logger.exception("Failed to reload deviation index after save")
+        retrievable = False
+
+    return {"verdict": "deviated", "deviationSummary": summary, "id": doc_id, "retrievable": retrievable}
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"

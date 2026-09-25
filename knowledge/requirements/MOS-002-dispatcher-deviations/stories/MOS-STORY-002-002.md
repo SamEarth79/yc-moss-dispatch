@@ -33,6 +33,6 @@ As a dispatcher, I want my reply compared against the protocol chunk on screen a
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

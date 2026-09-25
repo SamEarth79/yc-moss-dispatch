@@ -48,9 +48,9 @@
       "branch": "feature/MOS-002-dispatcher-deviations",
       "stories": {
         "MOS-STORY-002-001": {
-          "status": "tested",
-          "step": "commit",
-          "commit": null
+          "status": "committed",
+          "step": null,
+          "commit": "bef29f1"
         },
         "MOS-STORY-002-002": {
           "status": "pending",

@@ -18,3 +18,23 @@ Caveats (unverified):
 - `build_deviation_index.py` was not run or tested; real Moss index creation (delete-then-create) is unverified against a live Moss project.
 - All Moss behavior (load_indexes result shape, missing-index failure mode) is exercised only against a mocked client, so the real SDK's failure behavior for a nonexistent index is an unverified assumption.
 - The Manage Indexes page rendering (frontend) was not tested; only the /api/indexes payload.
+
+## MOS-STORY-002-002: Judge endpoint
+
+Command: `cd backend && uv run pytest --ignore=tests/e2e -q`
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit (`deviation_judge` with fake AsyncOpenAI-style client) | 14 passed, 0 failed |
+| Feature (`POST /api/deviations/judge`; fake `moss_client`, mocked `judge_deviation`, TestClient) | 23 passed, 0 failed |
+| E2E | skipped: no user-facing surface in this story (backend endpoint only) |
+| Full backend suite (excluding tests/e2e) | 71 passed, 0 failed (37 new in `backend/test_deviation_judge.py`) |
+
+Acceptance criteria mapping: AC1 None client, followed/deviated JSON, JSON mode and max_tokens=200, raises on invalid verdict/empty/None/non-JSON/deviated-without-summary; AC2 422 for empty/whitespace/missing fields and over-length caps; AC3 503 `LLM not configured` and 502 `Could not judge response` (ValueError and generic exception), nothing written; AC4 followed returns `{verdict}` and writes/reloads nothing; AC5 one doc, `dev-<32 hex>` id, text = situation + newline + summary, all-string metadata, empty `reason` when absent, ISO-8601 UTC timestamp, `create_index` when missing vs `add_docs` when present; AC6 reload called, `retrievable` false when `load_index` raises, 500 `Failed to save deviation` when list/add/create fails; AC7 error bodies checked for absence of provider/secret text and tracebacks.
+
+Caveats (unverified, mocked only):
+- Real DeepSeek verdict quality (prompt accuracy for followed vs deviated) is unverified.
+- Real Moss `create_index` / `add_docs` behavior is unverified against a live project.
+- `load_index` reload semantics (whether it makes new docs retrievable) are unverified.
