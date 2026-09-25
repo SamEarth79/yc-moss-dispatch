@@ -415,8 +415,8 @@ async def ws_session(websocket: WebSocket):
             if frame["type"] == "websocket.disconnect":
                 break
             if frame.get("bytes") is not None:
-                # Binary frames carry no channel tag; the frontend runs only one mic at a time,
-                # so they go to the dispatcher stream when open, otherwise the caller stream.
+                # Binary frames carry no channel tag, so only one channel may hold an open
+                # stream at a time (enforced in voice_start); the frame goes to whichever is open.
                 active_stream = voice["dispatcher"] or voice["caller"]
                 if active_stream is not None:
                     await active_stream.send_audio(frame["bytes"])
@@ -431,6 +431,10 @@ async def ws_session(websocket: WebSocket):
                 status_extra = {"channel": "dispatcher"} if channel == "dispatcher" else {}
 
             if msg["type"] == "voice_start":
+                other_channel = "caller" if channel == "dispatcher" else "dispatcher"
+                if voice[other_channel] is not None:
+                    await safe_send_json(websocket, {"type": "voice_status", "state": "unavailable", "reason": "another microphone is already active", **status_extra}, send_lock)
+                    continue
                 on_transcript = handle_dispatcher_voice_transcript if channel == "dispatcher" else handle_voice_transcript
                 stream = DeepgramStream(on_transcript)
                 try:
@@ -638,12 +642,18 @@ def deviation_caller_situation(body: JudgeDeviationRequest) -> str:
     return f"{what_happened} {transcript_tail}"
 
 
+save_deviation_lock = asyncio.Lock()
+
+
 async def save_deviation(doc: DocumentInfo) -> None:
-    existing = await moss_client.list_indexes()
-    if any(index.name == DEVIATION_INDEX_NAME for index in existing):
-        await moss_client.add_docs(DEVIATION_INDEX_NAME, [doc])
-    else:
-        await moss_client.create_index(DEVIATION_INDEX_NAME, [doc])
+    # The lock makes check-then-create atomic: without it, two concurrent first-time
+    # verdicts can both see the index missing and both call create_index.
+    async with save_deviation_lock:
+        existing = await moss_client.list_indexes()
+        if any(index.name == DEVIATION_INDEX_NAME for index in existing):
+            await moss_client.add_docs(DEVIATION_INDEX_NAME, [doc])
+        else:
+            await moss_client.create_index(DEVIATION_INDEX_NAME, [doc])
 
 
 @app.post("/api/deviations/judge")

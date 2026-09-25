@@ -17,7 +17,7 @@ The server starts without `deviation-index` (it is loaded as optional). Until th
 cd backend && uv run python build_deviation_index.py
 ```
 
-Requires `MOSS_PROJECT_ID` / `MOSS_PROJECT_KEY` in `backend/.env`. The script lists indexes, deletes `deviation-index` if it already exists, then creates it from `deviation_seed.py` (3 records: choking and cardiac arrest scenarios, ids `dev-seed-N`). Re-running it wipes any deviations saved through the UI. If the server is already running, restart it (or submit a deviation, which reloads the index) so the new index is loaded.
+Requires `MOSS_PROJECT_ID` / `MOSS_PROJECT_KEY` in `backend/.env`. The script lists indexes, deletes `deviation-index` if it already exists, then creates it from `deviation_seed.py` (3 records: choking and cardiac arrest scenarios, ids `dev-seed-N`). If the index already exists the script refuses and exits non-zero without touching Moss; re-running with `--force` (`uv run python build_deviation_index.py --force`) deletes it first and wipes any deviations saved through the UI. If the server is already running, restart it (or submit a deviation, which reloads the index) so the new index is loaded.
 
 If the index is absent when the first deviation is judged as `deviated`, the endpoint creates it with that one record.
 
@@ -77,6 +77,6 @@ All stories are PASS WITH CAVEATS. All Moss and LLM behavior was tested against 
 - Deviation documents must have all-string metadata values (Moss requirement); JSON-stringify structured values as done for `callerSummary`.
 - `text` is what is embedded and searched. Changing its composition changes retrieval; existing records are not re-embedded.
 - To tune retrieval, adjust `DEVIATION_MIN_SCORE` in `server.py` (and the top_k of 2 in `query_deviations`). The frontend caps displayed cards at 2.
-- To add seeds, edit `deviation_seed.py` using real `protocolChunkId` values from `protocol_chunks.py`, then re-run the build script (this deletes UI-saved deviations).
+- To add seeds, edit `deviation_seed.py` using real `protocolChunkId` values from `protocol_chunks.py`, then re-run the build script with `--force` (this deletes UI-saved deviations).
 - Keep judge changes inside `deviation_judge.py`; the endpoint depends on its contract (`None`, or `{verdict, deviationSummary}`, or `ValueError`).
 - Free-form docs can also be edited through the MOS-001 endpoints (`/api/indexes/deviation-index/docs`), which reload the live index after mutation.

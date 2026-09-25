@@ -165,3 +165,72 @@ def test_api_indexes_lists_deviation_index(monkeypatch):
 
     assert [i["name"] for i in response.json()] == [DEVIATION_INDEX_NAME]
     assert response.json()[0]["docCount"] == 3
+
+
+def test_save_deviation_concurrent_first_writes_create_index_once(monkeypatch):
+    import asyncio
+
+    created = []
+
+    async def list_indexes():
+        await asyncio.sleep(0)
+        return [SimpleNamespace(name=DEVIATION_INDEX_NAME)] if created else []
+
+    async def create_index(name, docs):
+        await asyncio.sleep(0)
+        created.append(name)
+
+    fake = SimpleNamespace(list_indexes=list_indexes, create_index=AsyncMock(side_effect=create_index), add_docs=AsyncMock())
+    monkeypatch.setattr(server, "moss_client", fake)
+
+    async def run():
+        await asyncio.gather(server.save_deviation("doc-1"), server.save_deviation("doc-2"))
+
+    asyncio.run(run())
+    assert fake.create_index.await_count == 1
+    assert fake.add_docs.await_count == 1
+
+
+def _run_build_main(monkeypatch, force, index_exists):
+    import asyncio
+    import build_deviation_index as build
+
+    fake = SimpleNamespace(
+        list_indexes=AsyncMock(return_value=[SimpleNamespace(name=DEVIATION_INDEX_NAME)] if index_exists else []),
+        delete_index=AsyncMock(),
+        create_index=AsyncMock(return_value=SimpleNamespace(job_id="j", index_name=DEVIATION_INDEX_NAME, doc_count=3)),
+    )
+    monkeypatch.setenv("MOSS_PROJECT_ID", "test-id")
+    monkeypatch.setenv("MOSS_PROJECT_KEY", "test-key")
+    monkeypatch.setattr(build, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(build, "MossClient", lambda *args, **kwargs: fake)
+    return build, fake, asyncio.run(build.main(force))
+
+
+def test_build_wants_force_only_with_explicit_flag():
+    import build_deviation_index as build
+
+    assert build.wants_force(["--force"]) is True
+    assert build.wants_force([]) is False
+
+
+def test_build_refuses_to_delete_existing_index_without_force(monkeypatch, capsys):
+    _, fake, code = _run_build_main(monkeypatch, force=False, index_exists=True)
+    assert code == 1
+    assert "--force" in capsys.readouterr().out
+    fake.delete_index.assert_not_awaited()
+    fake.create_index.assert_not_awaited()
+
+
+def test_build_deletes_and_rebuilds_existing_index_with_force(monkeypatch):
+    _, fake, code = _run_build_main(monkeypatch, force=True, index_exists=True)
+    assert code == 0
+    fake.delete_index.assert_awaited_once_with(DEVIATION_INDEX_NAME)
+    fake.create_index.assert_awaited_once()
+
+
+def test_build_creates_index_without_force_when_none_exists(monkeypatch):
+    _, fake, code = _run_build_main(monkeypatch, force=False, index_exists=False)
+    assert code == 0
+    fake.delete_index.assert_not_awaited()
+    fake.create_index.assert_awaited_once()

@@ -163,44 +163,71 @@ def test_unavailable_dispatcher_is_tagged_and_does_not_open_a_stream(monkeypatch
     assert fake.instances[0].audio == []
 
 
-def test_audio_goes_to_dispatcher_stream_when_open_else_caller(monkeypatch):
+def test_audio_goes_to_whichever_channel_stream_is_open(monkeypatch):
     fake = _setup(monkeypatch)
     with TestClient(server.app).websocket_connect("/ws") as ws:
         ws.send_json({"type": "voice_start"})
-        _status(ws)
-        ws.send_json({"type": "voice_start", "channel": "dispatcher"})
-        _status(ws)
-        caller, dispatcher = fake.instances
-        ws.send_bytes(b"to-dispatcher")
-        ws.send_json({"type": "voice_stop", "channel": "dispatcher"})
         _status(ws)
         ws.send_bytes(b"to-caller")
         ws.send_json({"type": "voice_stop"})
         _status(ws)
-    assert dispatcher.audio == [b"to-dispatcher"]
+        ws.send_json({"type": "voice_start", "channel": "dispatcher"})
+        _status(ws)
+        ws.send_bytes(b"to-dispatcher")
+        ws.send_json({"type": "voice_stop", "channel": "dispatcher"})
+        _status(ws)
+    caller, dispatcher = fake.instances
     assert caller.audio == [b"to-caller"]
+    assert dispatcher.audio == [b"to-dispatcher"]
 
 
-def test_restarting_a_channel_stops_its_previous_stream_only(monkeypatch):
+def test_restarting_a_channel_stops_its_previous_stream(monkeypatch):
     fake = _setup(monkeypatch)
     with TestClient(server.app).websocket_connect("/ws") as ws:
         ws.send_json({"type": "voice_start", "channel": "dispatcher"})
         _status(ws)
-        ws.send_json({"type": "voice_start"})
-        _status(ws)
         ws.send_json({"type": "voice_start", "channel": "dispatcher"})
         _status(ws)
-        first_dispatcher, caller, second_dispatcher = fake.instances
-        assert first_dispatcher.stopped == 1
-        assert caller.stopped == 0
-        assert second_dispatcher.stopped == 0
+        first, second = fake.instances
+        assert first.stopped == 1
+        assert second.stopped == 0
 
 
-def test_disconnect_stops_both_open_streams(monkeypatch):
+def test_disconnect_stops_the_open_stream(monkeypatch):
+    fake = _setup(monkeypatch)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "voice_start", "channel": "dispatcher"})
+        _status(ws)
+    assert [s.stopped for s in fake.instances] == [1]
+
+
+def test_dispatcher_start_rejected_while_caller_mic_open(monkeypatch):
     fake = _setup(monkeypatch)
     with TestClient(server.app).websocket_connect("/ws") as ws:
         ws.send_json({"type": "voice_start"})
-        _status(ws)
+        assert _status(ws)["state"] == "listening"
         ws.send_json({"type": "voice_start", "channel": "dispatcher"})
-        _status(ws)
-    assert [s.stopped for s in fake.instances] == [1, 1]
+        assert _status(ws) == {"type": "voice_status", "state": "unavailable", "reason": "another microphone is already active", "channel": "dispatcher"}
+    assert len(fake.instances) == 1
+
+
+def test_caller_start_rejected_while_dispatcher_mic_open(monkeypatch):
+    fake = _setup(monkeypatch)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "voice_start", "channel": "dispatcher"})
+        assert _status(ws)["state"] == "listening"
+        ws.send_json({"type": "voice_start"})
+        assert _status(ws) == {"type": "voice_status", "state": "unavailable", "reason": "another microphone is already active"}
+    assert len(fake.instances) == 1
+
+
+def test_start_allowed_after_other_channel_stops(monkeypatch):
+    fake = _setup(monkeypatch)
+    with TestClient(server.app).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "voice_start"})
+        assert _status(ws)["state"] == "listening"
+        ws.send_json({"type": "voice_stop"})
+        assert _status(ws)["state"] == "stopped"
+        ws.send_json({"type": "voice_start", "channel": "dispatcher"})
+        assert _status(ws) == {"type": "voice_status", "state": "listening", "channel": "dispatcher"}
+    assert len(fake.instances) == 2
