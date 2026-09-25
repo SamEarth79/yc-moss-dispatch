@@ -12,3 +12,15 @@ Tests in backend/test_jev_client.py (asyncio.run + monkeypatch, style of test_de
 - Constants 0.7 / 0.3 / 0.3 / 1.5 / 3.0.
 
 Live smoke test (orchestrator, one path): transport and response shape confirmed against real OpenRouter; extraction values were plausible (weapon 0.96, unconscious 0.97, police 0.99, ems 0.99, fire ~0.21-0.24, patients ('2', 0.98)); latency 935 ms cold, ~325-375 ms warm. Automated tests are mock-only, so real Jev accuracy is unverified in CI. Verdict: PASS WITH CAVEATS.
+
+## MOS-STORY-003-002 - Jev deviation verdict: what was tested and why
+
+Tests are in backend/test_deviation_judge.py; an autouse fixture in the new backend/conftest.py stubs decide_follows to return None so pre-existing tests stay offline and deterministic on the DeepSeek fallback path. Mapping to acceptance criteria:
+- AC1: P=0.87, exactly 0.3 and grey zone 0.4 return followed with an empty summary and the fake DeepSeek client is never awaited.
+- AC2: P=0.01 and 0.29 return deviated; exactly one summary-only call is made with the summary system prompt, the protocol chunk and dispatcher reply (plus reason only when given) in the user message, and no caller transcript. Empty, missing, non-string or non-JSON summaries raise ValueError.
+- AC3: Jev None runs the original full path with identical result, prompt and max_tokens; DeepSeek unconfigured after a Jev deviated verdict returns None (endpoint 503 "LLM not configured"). Reason and texts are passed through to decide_follows.
+- AC4: endpoint tests through POST /api/deviations/judge show followed writes nothing and deviated writes one doc with the Jev-path summary; response keys are unchanged.
+- AC5: caplog shows exactly one info line with source, verdict and p_follows (3 decimals), containing no reply, chunk, transcript or summary text.
+- AC6: existing tests unchanged and passing; 172 passed in the full suite.
+
+Live check (orchestrator): follows reply -> Jev P(follows)=0.87 followed; deviating reply "water" -> P=0.01 deviated with summary "Advised water and rest instead of back blows and abdominal thrusts."; latency followed ~0.9 s cold, deviated ~1.75 s (Jev then DeepSeek in sequence). Automated tests are mock-only and only 2 live cases were tried. Verdict: PASS WITH CAVEATS.

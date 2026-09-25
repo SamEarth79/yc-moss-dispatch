@@ -107,9 +107,9 @@
       "branch": "feature/MOS-003-jev-decisions",
       "stories": {
         "MOS-STORY-003-001": {
-          "status": "pending",
+          "status": "committed",
           "step": null,
-          "commit": null
+          "commit": "3fe566c"
         },
         "MOS-STORY-003-002": {
           "status": "pending",

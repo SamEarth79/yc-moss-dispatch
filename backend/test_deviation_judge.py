@@ -256,3 +256,164 @@ def test_write_failure_returns_500_without_leak(monkeypatch, failing):
     assert response.json()["detail"] == "Failed to save deviation"
     assert "key-9" not in response.text and "Traceback" not in response.text
     fake.load_index.assert_not_awaited()
+
+
+def _stub_jev(monkeypatch, probability):
+    decide = AsyncMock(return_value=probability)
+    monkeypatch.setattr(deviation_judge, "decide_follows", decide)
+    return decide
+
+
+def _judge_with_jev(monkeypatch, probability, content=None, reason=None):
+    decide = _stub_jev(monkeypatch, probability)
+    client, create = _fake_llm(content)
+    monkeypatch.setattr(deviation_judge, "_get_client", lambda: client)
+    result = asyncio.run(deviation_judge.judge_deviation("the reply", reason, "the chunk", "the transcript"))
+    return result, create, decide
+
+
+SUMMARY_JSON = json.dumps({"deviationSummary": "  Advised water instead of thrusts.  "})
+
+
+def test_jev_above_threshold_is_followed_without_deepseek(monkeypatch):
+    result, create, decide = _judge_with_jev(monkeypatch, 0.87)
+    assert result == {"verdict": "followed", "deviationSummary": ""}
+    create.assert_not_awaited()
+    decide.assert_awaited_once()
+
+
+def test_jev_below_threshold_is_deviated_with_summary_only_call(monkeypatch):
+    result, create, _ = _judge_with_jev(monkeypatch, 0.01, SUMMARY_JSON)
+    assert result == {"verdict": "deviated", "deviationSummary": "Advised water instead of thrusts."}
+    create.assert_awaited_once()
+    messages = create.await_args.kwargs["messages"]
+    assert messages[0]["content"] == deviation_judge.SUMMARY_SYSTEM_PROMPT
+    assert "the chunk" in messages[1]["content"]
+    assert "the reply" in messages[1]["content"]
+    assert create.await_args.kwargs["max_tokens"] == 150
+
+
+def test_threshold_boundary_is_followed(monkeypatch):
+    result, create, _ = _judge_with_jev(monkeypatch, deviation_judge.JEV_FOLLOW_THRESHOLD)
+    assert result["verdict"] == "followed"
+    create.assert_not_awaited()
+
+
+def test_just_below_threshold_is_deviated(monkeypatch):
+    result, create, _ = _judge_with_jev(monkeypatch, 0.29, SUMMARY_JSON)
+    assert result["verdict"] == "deviated"
+    create.assert_awaited_once()
+
+
+def test_grey_zone_is_followed(monkeypatch):
+    result, create, _ = _judge_with_jev(monkeypatch, 0.4)
+    assert result["verdict"] == "followed"
+    create.assert_not_awaited()
+
+
+def test_jev_none_uses_full_deepseek_path_unchanged(monkeypatch):
+    content = json.dumps({"verdict": "deviated", "deviationSummary": "  Gave water.  "})
+    result, create, _ = _judge_with_jev(monkeypatch, None, content)
+    assert result == {"verdict": "deviated", "deviationSummary": "Gave water."}
+    kwargs = create.await_args.kwargs
+    assert kwargs["messages"][0]["content"] == deviation_judge.SYSTEM_PROMPT
+    assert "Caller transcript: the transcript" in kwargs["messages"][1]["content"]
+    assert kwargs["max_tokens"] == 200
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", None, "not json at all", json.dumps({}), json.dumps({"deviationSummary": ""}), json.dumps({"deviationSummary": "  "}), json.dumps({"deviationSummary": 5})],
+)
+def test_deviated_with_invalid_summary_raises(monkeypatch, content):
+    _stub_jev(monkeypatch, 0.05)
+    client, _ = _fake_llm(content)
+    monkeypatch.setattr(deviation_judge, "_get_client", lambda: client)
+    with pytest.raises(ValueError):
+        asyncio.run(deviation_judge.judge_deviation("a", None, "b", "c"))
+
+
+def test_deviated_without_deepseek_configured_returns_none(monkeypatch):
+    _stub_jev(monkeypatch, 0.05)
+    monkeypatch.setattr(deviation_judge, "_get_client", lambda: None)
+    assert asyncio.run(deviation_judge.judge_deviation("a", None, "b", "c")) is None
+
+
+def test_reason_and_texts_are_passed_to_decide_follows(monkeypatch):
+    _, _, decide = _judge_with_jev(monkeypatch, 0.9, reason="because")
+    decide.assert_awaited_once_with("the chunk", "the reply", "the transcript", "because")
+
+
+def test_summary_prompt_includes_reason_only_when_given(monkeypatch):
+    _, create, _ = _judge_with_jev(monkeypatch, 0.0, SUMMARY_JSON, reason="because")
+    assert "because" in create.await_args.kwargs["messages"][1]["content"]
+    _, create, _ = _judge_with_jev(monkeypatch, 0.0, SUMMARY_JSON)
+    assert "stated reason" not in create.await_args.kwargs["messages"][1]["content"]
+
+
+def test_summary_prompt_excludes_caller_transcript(monkeypatch):
+    _, create, _ = _judge_with_jev(monkeypatch, 0.0, SUMMARY_JSON)
+    assert "the transcript" not in create.await_args.kwargs["messages"][1]["content"]
+
+
+@pytest.mark.parametrize(
+    "probability, content, source, verdict",
+    [
+        (0.87, None, "source=jev", "verdict=followed"),
+        (0.01, SUMMARY_JSON, "source=jev", "verdict=deviated"),
+        (None, json.dumps({"verdict": "followed"}), "source=deepseek-fallback", "verdict=followed"),
+    ],
+)
+def test_logs_source_verdict_and_probability_without_text(monkeypatch, caplog, probability, content, source, verdict):
+    caplog.set_level("INFO", logger="deviation_judge")
+    _judge_with_jev(monkeypatch, probability, content)
+    lines = [r.getMessage() for r in caplog.records if r.name == "deviation_judge"]
+    assert len(lines) == 1
+    assert source in lines[0] and verdict in lines[0]
+    if probability is not None:
+        assert f"p_follows={probability:.3f}" in lines[0]
+    for text in ("the reply", "the transcript", "the chunk", "Advised water"):
+        assert text not in lines[0]
+
+
+def _setup_with_jev(monkeypatch, probability, content=None):
+    fake, _ = _setup(monkeypatch, None)
+    monkeypatch.setattr(server, "judge_deviation", deviation_judge.judge_deviation)
+    _stub_jev(monkeypatch, probability)
+    client, create = _fake_llm(content)
+    monkeypatch.setattr(deviation_judge, "_get_client", lambda: client)
+    return fake, create
+
+
+def test_endpoint_jev_followed_writes_nothing_and_contract_unchanged(monkeypatch):
+    fake, create = _setup_with_jev(monkeypatch, 0.87)
+    response = _post()
+    assert response.status_code == 200
+    assert response.json() == {"verdict": "followed"}
+    create.assert_not_awaited()
+    fake.add_docs.assert_not_awaited()
+    fake.create_index.assert_not_awaited()
+
+
+def test_endpoint_jev_deviated_writes_one_doc_with_jev_summary(monkeypatch):
+    fake, create = _setup_with_jev(monkeypatch, 0.01, json.dumps({"deviationSummary": "Advised water instead of thrusts."}))
+    response = _post()
+    assert response.status_code == 200
+    data = response.json()
+    assert set(data) == {"verdict", "deviationSummary", "id", "retrievable"}
+    assert data["verdict"] == "deviated"
+    assert data["deviationSummary"] == "Advised water instead of thrusts."
+    create.assert_awaited_once()
+    fake.add_docs.assert_awaited_once()
+    docs = fake.add_docs.await_args.args[1]
+    assert len(docs) == 1
+    assert docs[0].metadata["deviationSummary"] == "Advised water instead of thrusts."
+
+
+def test_endpoint_jev_deviated_without_deepseek_returns_503(monkeypatch):
+    fake, _ = _setup_with_jev(monkeypatch, 0.01)
+    monkeypatch.setattr(deviation_judge, "_get_client", lambda: None)
+    response = _post()
+    assert response.status_code == 503
+    assert response.json()["detail"] == "LLM not configured"
+    fake.add_docs.assert_not_awaited()

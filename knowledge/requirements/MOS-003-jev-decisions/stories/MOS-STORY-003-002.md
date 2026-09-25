@@ -31,6 +31,6 @@ As a dispatcher, I want the followed/deviated verdict decided faster and with a 
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

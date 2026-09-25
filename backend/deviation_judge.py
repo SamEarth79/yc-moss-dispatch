@@ -4,8 +4,12 @@ Returns None when DEEPSEEK_API_KEY is missing so the caller can report "not conf
 """
 
 import json
+import logging
 
+from jev_client import JEV_FOLLOW_THRESHOLD, decide_follows
 from structured_extraction import DEEPSEEK_MODEL, _get_client
+
+logger = logging.getLogger(__name__)
 
 VERDICTS = ("followed", "deviated")
 
@@ -20,7 +24,72 @@ from the protocol; otherwise an empty string.
 EXAMPLE JSON OUTPUT: {"verdict": "deviated", "deviationSummary": "Advised water instead of back blows and abdominal thrusts."}"""
 
 
+SUMMARY_SYSTEM_PROMPT = """A 911 dispatcher's reply deviates from the protocol instruction that was on \
+their screen. Respond in JSON only, with one field:
+- deviationSummary: one sentence, at most 25 words, describing how the reply differs from the protocol.
+
+EXAMPLE JSON OUTPUT: {"deviationSummary": "Advised water instead of back blows and abdominal thrusts."}"""
+
+
 async def judge_deviation(
+    dispatcher_text: str,
+    reason: str | None,
+    protocol_chunk_text: str,
+    caller_transcript: str,
+) -> dict | None:
+    follows_probability = await decide_follows(protocol_chunk_text, dispatcher_text, caller_transcript, reason)
+    if follows_probability is None:
+        result = await _judge_with_deepseek(dispatcher_text, reason, protocol_chunk_text, caller_transcript)
+        if result is not None:
+            logger.info("deviation judged: source=deepseek-fallback verdict=%s", result["verdict"])
+        return result
+
+    if follows_probability >= JEV_FOLLOW_THRESHOLD:
+        logger.info("deviation judged: source=jev p_follows=%.3f verdict=followed", follows_probability)
+        return {"verdict": "followed", "deviationSummary": ""}
+
+    summary = await _summarize_deviation_with_deepseek(dispatcher_text, reason, protocol_chunk_text)
+    if summary is None:
+        return None
+    logger.info("deviation judged: source=jev p_follows=%.3f verdict=deviated", follows_probability)
+    return {"verdict": "deviated", "deviationSummary": summary}
+
+
+async def _summarize_deviation_with_deepseek(
+    dispatcher_text: str,
+    reason: str | None,
+    protocol_chunk_text: str,
+) -> str | None:
+    client = _get_client()
+    if client is None:
+        return None
+
+    user_message = f"Protocol instruction on screen: {protocol_chunk_text}\nDispatcher reply: {dispatcher_text}"
+    if reason:
+        user_message += f"\nDispatcher's stated reason: {reason}"
+
+    response = await client.chat.completions.create(
+        model=DEEPSEEK_MODEL,
+        messages=[
+            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        max_tokens=150,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise ValueError("Empty judge response")
+
+    summary = json.loads(content).get("deviationSummary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError("Deviated verdict without a summary")
+    return summary.strip()
+
+
+async def _judge_with_deepseek(
     dispatcher_text: str,
     reason: str | None,
     protocol_chunk_text: str,
