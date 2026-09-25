@@ -28,3 +28,9 @@ Live check (orchestrator): follows reply -> Jev P(follows)=0.87 followed; deviat
 ## MOS-STORY-003-003 - QA note: what was tested and why
 
 backend/test_jev_merge.py exercises merge_jev_fields as a pure function. It covers the threshold bands (exact 0.7 and 0.3 boundaries, uncertain zone keeps the rule value), field mapping (weapon, unconscious, patients, departments in canonical order), the sources map (only set when a value actually changes), safe handling of None/empty answers, and input immutability. Two realistic scenarios (sample call, no-injury gas leak) guard the end-to-end intent. No network is used. Caveat: the thresholds were validated on few real cases and are unverified at scale.
+
+## MOS-STORY-003-004 - QA notes
+
+Tested: jev_confident_fields thresholds/mappings as pure unit tests (test_jev_merge.py), and the worker integration end to end through /ws with a scripted fake decide_extraction (gates hold calls in flight; monotonic start times recorded) in test_jev_worker.py. Covers every AC of the story: sticky state, replacement, agreement clearing, reset on empty transcript and set_caller, cancellation, min gap, fallback, dev line, extraction_update shape with sources, and unaffected protocol/deviation/headline paths. Not tested: a real Jev websocket (mock-only).
+
+Live-run findings (MOS-STORY-003-004): (1) sticky overrides in server.py are now {"value", "rule"} and build_extraction_payload drops any whose remembered rule value no longer equals the current rule value, so a fresh rule value is not masked until Jev re-answers; `sources` lists only applied overrides that differ from the rule. (2) merge_jev_fields / jev_confident_fields (new optional rule_fields arg) no longer let a confident-False weapon/unconscious answer turn an unknown (None) rule value into a definite no/conscious; confident-True and patients/departments are unchanged. format_jev_value renders None as "unknown".

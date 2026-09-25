@@ -19,6 +19,7 @@ intermediate states. See transcript_worker below.
 """
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -49,7 +50,8 @@ from query_nearest_facility import haversine_miles, nearest_facility
 from basic_auth import BasicAuthMiddleware
 from voice_stream import DeepgramStream, VoiceStreamUnavailable
 from deviation_judge import judge_deviation
-from structured_extraction import extract_llm_fields, extract_rule_fields
+from jev_client import decide_extraction
+from structured_extraction import extract_llm_fields, extract_rule_fields, jev_confident_fields, merge_jev_fields
 
 NEAREST_FACILITIES_SHOWN = 3
 
@@ -57,6 +59,9 @@ logger = logging.getLogger(__name__)
 
 # Moss score scale is not documented in the SDK; tune against the seeded deviations.
 DEVIATION_MIN_SCORE = 0.3
+
+JEV_SETTLE_DELAY_S = 0.6
+JEV_MIN_GAP_S = 0.8
 
 
 def distance_label(miles: float) -> str:
@@ -277,6 +282,80 @@ async def timed(coro):
     return value, (time.monotonic() - start) * 1000
 
 
+def new_llm_state() -> dict:
+    return {
+        "fields": {"whatHappened": None},
+        "task": None,
+        "jev_task": None,
+        "jev_last_start": None,
+        "jev_state": {"overrides": {}, "sources": {}},
+    }
+
+
+def reset_jev(llm_state: dict):
+    if llm_state["jev_task"] is not None:
+        llm_state["jev_task"].cancel()
+        llm_state["jev_task"] = None
+    llm_state["jev_state"] = {"overrides": {}, "sources": {}}
+
+
+def build_extraction_payload(rule_fields: dict, llm_state: dict) -> dict:
+    fields = {**rule_fields, **llm_state["fields"]}
+    overrides = llm_state["jev_state"]["overrides"]
+    for name in [n for n, o in overrides.items() if o["rule"] != rule_fields.get(n)]:
+        del overrides[name]
+    fields.update({name: o["value"] for name, o in overrides.items()})
+    sources = {name: "jev" for name, o in overrides.items() if o["value"] != rule_fields.get(name)}
+    return {"type": "extraction_update", "fields": {**fields, "sources": sources}}
+
+
+def format_jev_value(value) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value) or "none"
+    if value is None:
+        return "unknown"
+    return str(value)
+
+
+def jev_summary(rule_fields: dict, merged: dict, checked: int = 6) -> str:
+    changes = [
+        f"{name}: {format_jev_value(rule_fields.get(name))}→{format_jev_value(value)}"
+        for name, value in merged.items()
+        if value != rule_fields.get(name)
+    ]
+    return f"{checked} checked, {len(changes)} overridden" + (f" ({', '.join(changes)})" if changes else "")
+
+
+async def run_jev_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text: str, rule_fields: dict, llm_state: dict):
+    await asyncio.sleep(JEV_SETTLE_DELAY_S)
+    last_start = llm_state["jev_last_start"]
+    if last_start is not None:
+        await asyncio.sleep(max(0.0, JEV_MIN_GAP_S - (time.monotonic() - last_start)))
+    llm_state["jev_last_start"] = time.monotonic()
+
+    answers, jev_ms = await timed(decide_extraction(text))
+    if answers is None:
+        await safe_send_json(
+            websocket,
+            dev_log_payload("jev", "decisions", jev_ms, "skipped (unavailable), rule values kept"),
+            send_lock,
+        )
+        return
+
+    merged, sources = merge_jev_fields(rule_fields, answers)
+    jev_state = llm_state["jev_state"]
+    for name in jev_confident_fields(answers, rule_fields):
+        jev_state["overrides"].pop(name, None)
+        jev_state["sources"].pop(name, None)
+    for name in sources:
+        jev_state["overrides"][name] = {"value": merged[name], "rule": copy.deepcopy(rule_fields.get(name))}
+        jev_state["sources"][name] = "jev"
+    await safe_send_json(websocket, build_extraction_payload(rule_fields, llm_state), send_lock)
+    await safe_send_json(websocket, dev_log_payload("jev", "decisions", jev_ms, jev_summary(rule_fields, merged)), send_lock)
+
+
 async def run_llm_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text: str, rule_fields: dict, llm_state: dict):
     llm_fields, extraction_ms = await timed(extract_llm_fields(text))
     if llm_fields is None:
@@ -284,7 +363,7 @@ async def run_llm_extraction(websocket: WebSocket, send_lock: asyncio.Lock, text
     else:
         llm_state["fields"] = llm_fields
         summary = ", ".join(f"{k}={v}" for k, v in llm_fields.items() if v not in (None, "")) or "no fields extracted"
-    await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)
+    await safe_send_json(websocket, build_extraction_payload(rule_fields, llm_state), send_lock)
     await safe_send_json(websocket, dev_log_payload("llm", "extraction", extraction_ms, summary), send_lock)
 
 
@@ -311,22 +390,26 @@ def deviation_payload(doc) -> dict:
     }
 
 
-async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, latest: dict, ready: asyncio.Event):
+async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, latest: dict, ready: asyncio.Event, llm_state: dict | None = None):
     """Waits for a transcript to process, always picking up whatever is CURRENTLY the
     latest one when it becomes free — not a FIFO queue. Rule fields and the Moss query
     answer immediately; the slow local-LLM call runs in the background and is cancelled
     when a newer transcript arrives, so stale results never overwrite fresh ones."""
-    llm_state = {"fields": {"whatHappened": None}, "task": None}
+    if llm_state is None:
+        llm_state = new_llm_state()
     try:
         while True:
             await ready.wait()
             ready.clear()
             text = latest["text"]
             if not text:
+                reset_jev(llm_state)
                 continue
 
             if llm_state["task"] is not None:
                 llm_state["task"].cancel()
+            if llm_state["jev_task"] is not None:
+                llm_state["jev_task"].cancel()
 
             query_text = trailing_window(text, WINDOW_WORDS)
             result, deviation_result = await asyncio.gather(
@@ -377,11 +460,14 @@ async def transcript_worker(websocket: WebSocket, send_lock: asyncio.Lock, lates
                 )
 
             rule_fields = extract_rule_fields(text)
-            await safe_send_json(websocket, {"type": "extraction_update", "fields": {**rule_fields, **llm_state["fields"]}}, send_lock)
+            await safe_send_json(websocket, build_extraction_payload(rule_fields, llm_state), send_lock)
             llm_state["task"] = asyncio.create_task(run_llm_extraction(websocket, send_lock, text, rule_fields, llm_state))
+            llm_state["jev_task"] = asyncio.create_task(run_jev_extraction(websocket, send_lock, text, rule_fields, llm_state))
     finally:
         if llm_state["task"] is not None:
             llm_state["task"].cancel()
+        if llm_state["jev_task"] is not None:
+            llm_state["jev_task"].cancel()
 
 
 @app.websocket("/ws")
@@ -395,7 +481,8 @@ async def ws_session(websocket: WebSocket):
 
     latest_transcript = {"text": None}
     transcript_ready = asyncio.Event()
-    worker_task = asyncio.create_task(transcript_worker(websocket, send_lock, latest_transcript, transcript_ready))
+    llm_state = new_llm_state()
+    worker_task = asyncio.create_task(transcript_worker(websocket, send_lock, latest_transcript, transcript_ready, llm_state))
 
     voice = {"caller": None, "dispatcher": None}
 
@@ -457,6 +544,7 @@ async def ws_session(websocket: WebSocket):
             if msg["type"] == "set_caller":
                 address = msg["address"]
                 loc = CALLER_LOCATIONS[address]
+                reset_jev(llm_state)
                 payload = await caller_context_payload(address, loc["lat"], loc["lon"], loc["county"], websocket, send_lock)
                 await safe_send_json(websocket, payload, send_lock)
 

@@ -43,3 +43,23 @@ Verdict: PASS WITH CAVEATS
 
 Caveats:
 - Pure-logic unit tests only. The confidence thresholds (0.7 / 0.3) were validated in the design session on a few real cases and are unverified at scale.
+
+## MOS-STORY-003-004 - Worker integration
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit (backend/test_jev_merge.py, jev_confident_fields) | 26 new, all passed (boolean mappings weapon/unconscious with 0.7/0.3 boundaries and 0.31-0.69 uncertain; patients 0.7 boundary, 0.69, None; departments any-of; all-uncertain; full set; None/empty) |
+| Feature (backend/test_jev_worker.py, TestClient /ws, fake decide_extraction, mocked Moss and extract_llm_fields) | 23 passed, 0 failed (override as second extraction_update with sources and dev line with latency; unchanged key shape; fallback dev line only; stickiness across transcripts while next Jev call pending; uncertain keeps sticky; newer confident replaces; regression 1: confident agreement on weapons/consciousness/patients/departments clears sticky; regression 2: empty transcript and set_caller reset state and cancel in-flight Jev; cancellation before settle delay (no decide_extraction call); min gap between call starts; whatHappened untouched; protocol/deviation paths unaffected; worker not blocked by slow Jev; clean exit on disconnect with pending Jev) |
+| E2E (Playwright) | Skipped: no UI change |
+| Full suite (`cd backend && uv run pytest --ignore=tests/e2e -q`) | 257 passed, 0 failed (was 208) |
+
+Caveats:
+- Mock-only: a real Jev websocket session was not run by these tests.
+- Observation (not an AC failure): when the rule value is None, the dev-feed line reads `weapons: None→yes` (raw None), while the AC example `no→yes` is reproduced only when the rule said False.
+
+Live-run findings (websocket run) and fixes, MOS-STORY-003-004:
+- Stale sticky: a sticky Jev override (weapons=False) masked a fresher rule value (weapons=True on "knife") until the next Jev answer. Each override now stores the rule value it was decided against and is applied (and kept) only while the current rule value equals it; otherwise it is dropped. Tests: stale sticky dropped through the worker, sticky still applies when rule unchanged, direct payload test incl. departments.
+- Unknown != no: Jev turned a None rule value into a definite "no" (weapons) / "conscious". A confident-False answer now applies only when the rule value is not None; confident-True still applies from None; jev_confident_fields(answers, rule_fields) treats an ignored False as not confident. Dev-feed now renders None as "unknown". Tests updated (merge, worker summary strings) and added.
+- Full suite: 268 passed, 0 failed.

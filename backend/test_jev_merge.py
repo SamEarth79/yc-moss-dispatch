@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from structured_extraction import merge_jev_fields
+from structured_extraction import jev_confident_fields, merge_jev_fields
 
 RULE = {"numberOfPatients": 1, "consciousness": "unconscious", "weapons": False, "departments": ["Police"]}
 
@@ -29,10 +29,38 @@ def test_weapon_uncertain_band_keeps_rule(p, rule_value):
 
 @pytest.mark.parametrize("p, expected", [(0.7, "unconscious"), (0.3, "conscious"), (0.9, "unconscious"), (0.1, "conscious")])
 def test_unconscious_maps_to_consciousness_label(p, expected):
-    rule = {**RULE, "consciousness": None}
+    rule = {**RULE, "consciousness": "conscious" if expected == "unconscious" else "unconscious"}
     fields, sources = _merge({"unconscious": p}, rule)
     assert fields["consciousness"] == expected
     assert sources == {"consciousness": "jev"}
+
+
+@pytest.mark.parametrize("p", [0.7, 0.95])
+def test_confident_true_applies_from_unknown_rule(p):
+    fields, sources = _merge({"weapon": p, "unconscious": p}, {**RULE, "weapons": None, "consciousness": None})
+    assert fields["weapons"] is True and fields["consciousness"] == "unconscious"
+    assert sources == {"weapons": "jev", "consciousness": "jev"}
+
+
+@pytest.mark.parametrize("p", [0.3, 0.05])
+def test_confident_false_never_turns_unknown_rule_into_no(p):
+    rule = {**RULE, "weapons": None, "consciousness": None}
+    fields, sources = _merge({"weapon": p, "unconscious": p}, rule)
+    assert fields["weapons"] is None and fields["consciousness"] is None
+    assert sources == {}
+
+
+def test_confident_false_contradicts_rule_true_with_source():
+    fields, sources = _merge({"weapon": 0.05}, {**RULE, "weapons": True})
+    assert fields["weapons"] is False
+    assert sources == {"weapons": "jev"}
+
+
+def test_confident_false_is_not_confident_when_rule_unknown():
+    rule = {**RULE, "weapons": None, "consciousness": None}
+    assert jev_confident_fields({"weapon": 0.05, "unconscious": 0.05}, rule) == set()
+    assert jev_confident_fields({"weapon": 0.95, "unconscious": 0.95}, rule) == {"weapons", "consciousness"}
+    assert jev_confident_fields({"weapon": 0.05, "unconscious": 0.05}, RULE) == {"weapons", "consciousness"}
 
 
 def test_unconscious_uncertain_keeps_rule():
@@ -168,3 +196,34 @@ def test_no_injury_gas_leak_scenario():
     assert fields["numberOfPatients"] == 0
     assert fields["departments"] == ["Fire"]
     assert sources == {"numberOfPatients": "jev", "departments": "jev"}
+
+
+@pytest.mark.parametrize("key, field", [("weapon", "weapons"), ("unconscious", "consciousness")])
+@pytest.mark.parametrize("p, confident", [(0.7, True), (0.95, True), (0.3, True), (0.05, True), (0.31, False), (0.5, False), (0.69, False)])
+def test_confident_fields_boolean_mappings_and_thresholds(key, field, p, confident):
+    assert (field in jev_confident_fields({key: p})) is confident
+
+
+@pytest.mark.parametrize("patients, confident", [((2, 0.7), True), ((2, 0.9), True), ((2, 0.69), False), ((2, 0.1), False), (None, False)])
+def test_confident_fields_patients_uses_confidence_boundary(patients, confident):
+    assert ("numberOfPatients" in jev_confident_fields({"patients": patients})) is confident
+
+
+@pytest.mark.parametrize("key", ["police", "ems", "fire"])
+def test_confident_fields_departments_any_of_one_confident(key):
+    answers = {"police": 0.5, "ems": 0.5, "fire": 0.5, key: 0.1}
+    assert jev_confident_fields(answers) == {"departments"}
+
+
+def test_confident_fields_departments_all_uncertain_is_not_confident():
+    assert jev_confident_fields({"police": 0.5, "ems": 0.4, "fire": 0.6}) == set()
+
+
+def test_confident_fields_full_answer_set():
+    answers = {"weapon": 0.9, "unconscious": 0.1, "patients": (3, 0.8), "police": 0.9, "ems": 0.5, "fire": 0.5}
+    assert jev_confident_fields(answers) == {"weapons", "consciousness", "numberOfPatients", "departments"}
+
+
+@pytest.mark.parametrize("answers", [None, {}])
+def test_confident_fields_none_or_empty_is_empty_set(answers):
+    assert jev_confident_fields(answers) == set()
