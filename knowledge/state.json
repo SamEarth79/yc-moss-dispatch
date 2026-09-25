@@ -86,7 +86,7 @@
       "pr": {
         "number": 1,
         "url": "https://github.com/SamEarth79/yc-moss-dispatch/pull/1",
-        "state": "approved",
+        "state": "merged",
         "reviewCycles": 1
       },
       "asana": {
@@ -99,6 +99,53 @@
           "MOS-STORY-002-005": "1218860548562723",
           "MOS-STORY-002-006": "1218860540348717",
           "MOS-STORY-002-007": "1218860548213923"
+        }
+      }
+    },
+    "MOS-003-jev-decisions": {
+      "design": "complete",
+      "branch": "feature/MOS-003-jev-decisions",
+      "stories": {
+        "MOS-STORY-003-001": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-003-002": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-003-003": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-003-004": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        },
+        "MOS-STORY-003-005": {
+          "status": "pending",
+          "step": null,
+          "commit": null
+        }
+      },
+      "pr": {
+        "number": null,
+        "url": null,
+        "state": "none",
+        "reviewCycles": 0
+      },
+      "asana": {
+        "epicGid": "1218872293950179",
+        "stories": {
+          "MOS-STORY-003-001": "1218872526014780",
+          "MOS-STORY-003-002": "1218872326611428",
+          "MOS-STORY-003-003": "1218872410474212",
+          "MOS-STORY-003-004": "1218872526375740",
+          "MOS-STORY-003-005": "1218872550214772"
         }
       }
     }
