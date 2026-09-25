@@ -81,3 +81,21 @@ Caveats:
 - E2E runs against a stub /ws; not verified with real Jev output in a real browser.
 - Lavender tag text contrast was computed, not measured by a tool.
 - Observation: the initial page render (renderExtraction({})) seeds previous values, so the first extraction_update after load compares against empty values; the "no cue on first render" guarantee is tested for the initial render and for the first render after a caller reset.
+
+## MOS-STORY-003-006: Jev calls in the developer feed
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit (`backend/test_deviation_judge.py`, judge_deviation devLog) | 18 new tests added to the file (78 passed in file total): Jev followed entry (`P(follows)=0.87 → followed`), deviated entry (`0.12 → deviated`), two-decimal formatting, fallback entry `skipped (unavailable), DeepSeek fallback` with latency >= 0 at one decimal, latency measured around the Jev call, no reply/reason/chunk/transcript/summary text anywhere in `json.dumps(devLog)` (3 parametrized paths), threshold 0.3 -> followed entry, judge still returns None without DeepSeek |
+| Feature (same file, POST /api/deviations/judge via TestClient) | followed keys exactly {verdict, devLog}; deviated keys exactly {verdict, deviationSummary, id, retrievable, devLog}; fallback devLog visible; 503/502/500 carry no devLog; stored doc text/metadata unaffected by devLog. All passed |
+| E2E (Playwright, new `backend/tests/e2e/test_dev_feed_jev.py`, stub /ws + stub judge endpoint) | 17 passed, 0 failed: jev entry after Submit (class `dev-log-entry--jev`, label `jev`, type `verdict`, `312ms`, summary), null latency `—`, newest-first ordering, deviated response entry, 503/502/500 add nothing, missing/non-array devLog adds nothing, invalid entries skipped, HTML in fields rendered as text (no img, no dialog), service class suffix sanitized (`JEV<x> onclick="1"` -> `jevxonclick1`, no injected element/attribute), WS dev_log for moss/llm/asr/jev keep the same 5-span markup/classes, jev label lavender computed color/background differ from neutral and equal `.source-tag--jev`, feed trims to 40 |
+| Existing e2e | 110 passed total in tests/e2e (93 prior + 17 new) |
+| Non-e2e | 286 passed |
+| Full suite (`cd backend && uv run pytest -q`) | 396 passed, 0 failed |
+
+Caveats:
+- E2E runs against stubs (/ws and the judge endpoint); not verified with real Jev output or the real server in a real browser.
+- Backend tests stub `decide_follows` and the DeepSeek client; the Jev wire behavior is not exercised here.
+- Latency "measured" is asserted as >= 0 / rounded to one decimal, and a slow stub (50ms) yields >= 40ms; no absolute timing is asserted.

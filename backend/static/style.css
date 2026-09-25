@@ -709,6 +709,11 @@ button.action-button:disabled {
   color: var(--color-lavender);
 }
 
+.dev-log-service--jev {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--color-lavender);
+}
+
 .dev-log-type {
   color: var(--color-fog);
 }
@@ -723,6 +728,10 @@ button.action-button:disabled {
 }
 
 .dev-log-entry--llm .dev-log-latency {
+  color: var(--color-lavender);
+}
+
+.dev-log-entry--jev .dev-log-latency {
   color: var(--color-lavender);
 }
 

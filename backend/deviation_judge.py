@@ -5,6 +5,7 @@ Returns None when DEEPSEEK_API_KEY is missing so the caller can report "not conf
 
 import json
 import logging
+import time
 
 from jev_client import JEV_FOLLOW_THRESHOLD, decide_follows
 from structured_extraction import DEEPSEEK_MODEL, _get_client
@@ -37,22 +38,39 @@ async def judge_deviation(
     protocol_chunk_text: str,
     caller_transcript: str,
 ) -> dict | None:
+    started = time.monotonic()
     follows_probability = await decide_follows(protocol_chunk_text, dispatcher_text, caller_transcript, reason)
+    jev_latency_ms = round((time.monotonic() - started) * 1000, 1)
+
     if follows_probability is None:
         result = await _judge_with_deepseek(dispatcher_text, reason, protocol_chunk_text, caller_transcript)
-        if result is not None:
-            logger.info("deviation judged: source=deepseek-fallback verdict=%s", result["verdict"])
+        if result is None:
+            return None
+        logger.info("deviation judged: source=deepseek-fallback verdict=%s", result["verdict"])
+        result["devLog"] = [_jev_verdict_entry(jev_latency_ms, "skipped (unavailable), DeepSeek fallback")]
         return result
 
     if follows_probability >= JEV_FOLLOW_THRESHOLD:
         logger.info("deviation judged: source=jev p_follows=%.3f verdict=followed", follows_probability)
-        return {"verdict": "followed", "deviationSummary": ""}
+        return {
+            "verdict": "followed",
+            "deviationSummary": "",
+            "devLog": [_jev_verdict_entry(jev_latency_ms, f"P(follows)={follows_probability:.2f} → followed")],
+        }
 
     summary = await _summarize_deviation_with_deepseek(dispatcher_text, reason, protocol_chunk_text)
     if summary is None:
         return None
     logger.info("deviation judged: source=jev p_follows=%.3f verdict=deviated", follows_probability)
-    return {"verdict": "deviated", "deviationSummary": summary}
+    return {
+        "verdict": "deviated",
+        "deviationSummary": summary,
+        "devLog": [_jev_verdict_entry(jev_latency_ms, f"P(follows)={follows_probability:.2f} → deviated")],
+    }
+
+
+def _jev_verdict_entry(latency_ms: float, summary: str) -> dict:
+    return {"service": "jev", "callType": "verdict", "latencyMs": latency_ms, "summary": summary}
 
 
 async def _summarize_deviation_with_deepseek(

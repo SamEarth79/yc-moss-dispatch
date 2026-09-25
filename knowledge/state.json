@@ -127,8 +127,13 @@
           "commit": "c1ba236"
         },
         "MOS-STORY-003-005": {
-          "status": "pending",
+          "status": "committed",
           "step": null,
+          "commit": "6049fa0"
+        },
+        "MOS-STORY-003-006": {
+          "status": "in_progress",
+          "step": "execute",
           "commit": null
         }
       },

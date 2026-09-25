@@ -148,7 +148,7 @@ def test_deviation_from_judge_endpoint_is_retrieved_on_later_transcript_without_
     fake = _StatefulMoss()
     monkeypatch.setattr(server, "moss_client", fake)
     monkeypatch.setattr(
-        server, "judge_deviation", AsyncMock(return_value={"verdict": "deviated", "deviationSummary": "Gave water"})
+        server, "judge_deviation", AsyncMock(return_value={"verdict": "deviated", "deviationSummary": "Gave water", "devLog": []})
     )
     before = _run_transcript(monkeypatch, fake)
     assert _of_type(before, "deviation_update")[0]["deviations"] == []

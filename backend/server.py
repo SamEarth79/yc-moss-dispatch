@@ -760,7 +760,7 @@ async def judge_dispatcher_deviation(body: JudgeDeviationRequest):
         raise HTTPException(status_code=503, detail="LLM not configured")
 
     if verdict["verdict"] == "followed":
-        return {"verdict": "followed"}
+        return {"verdict": "followed", "devLog": verdict["devLog"]}
 
     summary = verdict["deviationSummary"]
     doc_id = f"dev-{uuid.uuid4().hex}"
@@ -794,7 +794,13 @@ async def judge_dispatcher_deviation(body: JudgeDeviationRequest):
         logger.exception("Failed to reload deviation index after save")
         retrievable = False
 
-    return {"verdict": "deviated", "deviationSummary": summary, "id": doc_id, "retrievable": retrievable}
+    return {
+        "verdict": "deviated",
+        "deviationSummary": summary,
+        "id": doc_id,
+        "retrievable": retrievable,
+        "devLog": verdict["devLog"],
+    }
 
 
 def parse_caller_summary(raw: str | None) -> dict:

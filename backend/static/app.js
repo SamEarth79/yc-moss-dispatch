@@ -292,20 +292,45 @@ function renderUnitStatus(msg) {
   }
 }
 
+function isDevLogEntry(entry) {
+  return (
+    entry !== null &&
+    typeof entry === "object" &&
+    typeof entry.service === "string" &&
+    typeof entry.callType === "string" &&
+    typeof entry.summary === "string" &&
+    (entry.latencyMs === null || typeof entry.latencyMs === "number")
+  );
+}
+
+function renderJudgeDevLog(devLog) {
+  if (!Array.isArray(devLog)) return;
+  for (const entry of devLog) {
+    if (isDevLogEntry(entry)) renderDevLog(entry);
+  }
+}
+
 function renderDevLog(msg) {
   const empty = devFeed.querySelector(".extraction-empty");
   if (empty) empty.remove();
 
   const time = new Date().toLocaleTimeString("en-US", { hour12: false });
+  const service = String(msg.service).toLowerCase().replace(/[^a-z0-9-]/g, "");
   const entry = document.createElement("div");
-  entry.className = `dev-log-entry dev-log-entry--${msg.service}`;
-  entry.innerHTML = `
-    <span class="dev-log-time">${time}</span>
-    <span class="dev-log-service dev-log-service--${msg.service}">${msg.service}</span>
-    <span class="dev-log-type">${msg.callType}</span>
-    <span class="dev-log-latency">${msg.latencyMs != null ? `${msg.latencyMs}ms` : "—"}</span>
-    <span class="dev-log-summary">${msg.summary}</span>
-  `;
+  entry.className = `dev-log-entry dev-log-entry--${service}`;
+  const cells = [
+    ["dev-log-time", time],
+    [`dev-log-service dev-log-service--${service}`, msg.service],
+    ["dev-log-type", msg.callType],
+    ["dev-log-latency", msg.latencyMs != null ? `${msg.latencyMs}ms` : "—"],
+    ["dev-log-summary", msg.summary],
+  ];
+  for (const [className, text] of cells) {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    entry.append(span);
+  }
   devFeed.prepend(entry);
 
   while (devFeed.children.length > DEV_FEED_MAX_ENTRIES) {
@@ -750,6 +775,7 @@ async function submitDispatcherReply() {
     }
     const result = await response.json();
     renderVerdictCard(result, chunk.id, dispatcherText);
+    renderJudgeDevLog(result.devLog);
     dispatcherInput.value = "";
     dispatcherReason.value = "";
     clearMockSelection();
