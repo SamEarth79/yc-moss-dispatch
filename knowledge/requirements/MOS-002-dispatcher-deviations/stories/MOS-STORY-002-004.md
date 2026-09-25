@@ -33,6 +33,6 @@ As a dispatcher, I want to type or pick a mock reply and press Submit once to se
 
 ## Status
 
-- [ ] Implemented
-- [ ] Tested
-- [ ] Committed
+- [x] Implemented
+- [x] Tested
+- [x] Committed

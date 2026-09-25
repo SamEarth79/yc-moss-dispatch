@@ -76,3 +76,24 @@ Caveats (unverified):
 - Real Moss `get_index` error type for a missing index is assumed to be `RuntimeError` (per implementation), not confirmed against a live project.
 - The 1-column layout under 640px was checked only indirectly (no horizontal overflow at 375px), not via computed grid columns.
 - Google Fonts are external and not loaded/verified in the test environment.
+
+## MOS-STORY-002-004: Dispatcher panel + verdict card
+
+Command: `cd backend && uv run pytest -q`
+
+Verdict: PASS WITH CAVEATS
+
+| Layer | Result |
+|---|---|
+| Unit/feature | none added: frontend-only story; the judge endpoint is already covered by earlier stories' tests |
+| E2E (Playwright/Chromium; `backend/tests/e2e/test_dispatcher_panel.py`, own stub app serving the real static files, `/ws` stub that pushes `protocol_update`, recording `POST /api/deviations/judge` stub) | 17 passed, 0 failed |
+| Full backend suite incl. e2e | 132 passed, 0 failed (88 non-E2E, 44 E2E) |
+
+Acceptance criteria mapping: AC1 panel heading, labelled textarea/reason input, two demo buttons, Submit. AC2 mock buttons replace text, do not submit (no request), `aria-pressed` toggles and clears on typing. AC3 `aria-disabled` for empty/blank text, no chunk (helper shown, hidden once chunk arrives), in flight ("Checking…", double click plus Ctrl+Enter send one request); Ctrl+Enter submits, plain Enter does not. AC4 request body carries the chunk snapshotted at click time even when a new `protocol_update` arrives before the response, callerTranscript, trimmed text, `reason` only when non-empty. AC5 followed card, inputs and selection cleared. AC6 deviated card with summary, "LLM generated" tag, "Saved to deviation index" or the not-retrievable warning; inputs cleared. AC7 503/502/500 error cards with exact copy, inputs preserved, Submit re-enabled. AC8 `role="status"` / `role="alert"`, verdict conveyed by text, card persists until the next Submit and is replaced by it; caller change clears inputs and card.
+
+Notes: Playwright treats `aria-disabled` buttons as not actionable, so clicks on a disabled Submit use `force=True`. Network-failure (status 0) error path is not separately tested. No arbitrary sleeps.
+
+Caveats (unverified):
+- E2E runs against stubs: the real LLM verdict and the real WebSocket/protocol matching were not exercised together with the UI.
+- Keyboard-only and screen-reader behaviour is asserted only via attributes (`aria-disabled`, `aria-pressed`, `role`, label association), not with assistive technology.
+- Google Fonts are blocked in tests, so final visual rendering was not verified.

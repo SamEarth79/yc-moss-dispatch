@@ -78,9 +78,9 @@
           "commit": null
         },
         "MOS-STORY-002-007": {
-          "status": "pending",
+          "status": "committed",
           "step": null,
-          "commit": null
+          "commit": "f1ea698"
         }
       },
       "pr": {

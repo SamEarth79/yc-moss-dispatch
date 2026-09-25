@@ -44,6 +44,26 @@
         rows="4"
         placeholder="Type what the caller is saying, as if it were arriving live from ASR…"
       ></textarea>
+
+      <h2 class="section-gap">Dispatcher Transcript</h2>
+      <div class="voice-controls" role="group" aria-label="Demo replies">
+        <button id="mockFollowsButton" class="voice-button" type="button" aria-pressed="false">Demo: simulate reply that follows protocol</button>
+        <button id="mockDeviatesButton" class="voice-button" type="button" aria-pressed="false">Demo: simulate reply that deviates</button>
+      </div>
+      <label class="field-label" for="dispatcherInput">Dispatcher reply</label>
+      <textarea
+        id="dispatcherInput"
+        class="transcript-input"
+        rows="3"
+        placeholder="Type what the dispatcher said to the caller…"
+      ></textarea>
+      <label class="field-label" for="dispatcherReason">Reason for deviating (optional)</label>
+      <input id="dispatcherReason" class="reason-input" type="text" autocomplete="off" />
+      <div class="dispatcher-submit-row">
+        <button id="dispatcherSubmit" class="action-button" type="button" aria-disabled="true">Submit</button>
+        <p id="dispatcherHelper" class="dispatcher-helper">Waiting for a protocol match…</p>
+      </div>
+      <div id="verdictSlot" class="verdict-slot"></div>
     </section>
 
     <div class="middle-column">

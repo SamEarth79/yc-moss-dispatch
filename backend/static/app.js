@@ -16,6 +16,14 @@ const micButton = document.getElementById("micButton");
 const sampleButton = document.getElementById("sampleButton");
 const voiceStatus = document.getElementById("voiceStatus");
 
+const mockFollowsButton = document.getElementById("mockFollowsButton");
+const mockDeviatesButton = document.getElementById("mockDeviatesButton");
+const dispatcherInput = document.getElementById("dispatcherInput");
+const dispatcherReason = document.getElementById("dispatcherReason");
+const dispatcherSubmit = document.getElementById("dispatcherSubmit");
+const dispatcherHelper = document.getElementById("dispatcherHelper");
+const verdictSlot = document.getElementById("verdictSlot");
+
 const DEV_FEED_MAX_ENTRIES = 40;
 
 const CALLER_ADDRESSES = [
@@ -148,6 +156,8 @@ function renderInstructionSteps(text) {
 }
 
 function renderProtocolUpdate(msg) {
+  onScreenChunk = { id: msg.matchId, text: msg.matchText };
+  updateSubmitState();
 
   priorityBadge.textContent = msg.priority ?? "—";
   priorityBadge.className = "badge " + priorityClass(msg.priority);
@@ -226,6 +236,7 @@ function setupCallerSelect() {
   }
   callerSelect.onchange = () => {
     renderExtraction(latestFields);
+    resetDispatcherPanel();
     ws.send(JSON.stringify({ type: "set_caller", address: callerSelect.value }));
   };
 }
@@ -421,7 +432,141 @@ async function startSample() {
 micButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startMic());
 sampleButton.onclick = () => (stopActiveVoice ? stopActiveVoice() : startSample());
 
+const MOCK_REPLY_FOLLOWS =
+  "Lean him forward and give five firm back blows, then five abdominal thrusts. Keep alternating until he coughs it out.";
+const MOCK_REPLY_DEVIATES = "Give him a glass of water to wash it down and have him sit and rest.";
+
+let onScreenChunk = null;
+let isJudging = false;
+
+function canSubmitReply() {
+  return !isJudging && onScreenChunk !== null && dispatcherInput.value.trim() !== "";
+}
+
+function updateSubmitState() {
+  dispatcherSubmit.setAttribute("aria-disabled", String(!canSubmitReply()));
+  dispatcherHelper.hidden = onScreenChunk !== null;
+}
+
+function clearMockSelection() {
+  mockFollowsButton.setAttribute("aria-pressed", "false");
+  mockDeviatesButton.setAttribute("aria-pressed", "false");
+}
+
+function fillMockReply(button, text) {
+  dispatcherInput.value = text;
+  clearMockSelection();
+  button.setAttribute("aria-pressed", "true");
+  updateSubmitState();
+}
+
+function resetDispatcherPanel() {
+  dispatcherInput.value = "";
+  dispatcherReason.value = "";
+  clearMockSelection();
+  verdictSlot.replaceChildren();
+  updateSubmitState();
+}
+
+function makeEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function renderVerdictCard(result, chunkId, submittedText) {
+  const deviated = result.verdict === "deviated";
+  const card = makeEl("div", `verdict-card verdict-card--${deviated ? "deviated" : "followed"}`);
+  card.setAttribute("role", "status");
+
+  const title = makeEl("div", "verdict-title");
+  title.appendChild(makeEl("span", "", deviated ? "Deviated" : "Followed protocol"));
+  if (deviated) title.appendChild(makeEl("span", "source-tag source-tag--llm source-tag--inline", "LLM generated"));
+  card.appendChild(title);
+
+  const compared = makeEl("p", "verdict-meta", "Compared with protocol chunk ");
+  compared.appendChild(makeEl("code", "", chunkId));
+  card.appendChild(compared);
+  card.appendChild(makeEl("p", "verdict-meta", `Submitted: ${submittedText}`));
+
+  if (deviated) {
+    card.appendChild(makeEl("p", "verdict-meta", result.deviationSummary));
+    if (result.retrievable === false) {
+      card.appendChild(makeEl("p", "verdict-warning", "Saved, but not retrievable for future calls."));
+    } else {
+      card.appendChild(makeEl("p", "verdict-meta", "Saved to deviation index"));
+    }
+  }
+  verdictSlot.replaceChildren(card);
+}
+
+function renderVerdictError(status) {
+  const card = makeEl("div", "verdict-card verdict-card--error");
+  card.setAttribute("role", "alert");
+  card.appendChild(
+    makeEl("div", "verdict-title", status === 503 ? "Reply check is not configured." : "Couldn't check this reply. Try again."),
+  );
+  verdictSlot.replaceChildren(card);
+}
+
+async function submitDispatcherReply() {
+  if (!canSubmitReply()) return;
+  const chunk = onScreenChunk;
+  const dispatcherText = dispatcherInput.value.trim();
+  const reason = dispatcherReason.value.trim();
+  const body = {
+    dispatcherText,
+    protocolChunkId: chunk.id,
+    protocolChunkText: chunk.text,
+    callerTranscript: transcriptInput.value,
+  };
+  if (reason) body.reason = reason;
+  if (latestFields.whatHappened) body.callerSummary = { whatHappened: latestFields.whatHappened };
+
+  isJudging = true;
+  dispatcherSubmit.textContent = "Checking…";
+  updateSubmitState();
+  try {
+    const response = await fetch("/api/deviations/judge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      renderVerdictError(response.status);
+      return;
+    }
+    const result = await response.json();
+    renderVerdictCard(result, chunk.id, dispatcherText);
+    dispatcherInput.value = "";
+    dispatcherReason.value = "";
+    clearMockSelection();
+  } catch {
+    renderVerdictError(0);
+  } finally {
+    isJudging = false;
+    dispatcherSubmit.textContent = "Submit";
+    updateSubmitState();
+  }
+}
+
+mockFollowsButton.onclick = () => fillMockReply(mockFollowsButton, MOCK_REPLY_FOLLOWS);
+mockDeviatesButton.onclick = () => fillMockReply(mockDeviatesButton, MOCK_REPLY_DEVIATES);
+dispatcherInput.addEventListener("input", () => {
+  clearMockSelection();
+  updateSubmitState();
+});
+dispatcherInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    submitDispatcherReply();
+  }
+});
+dispatcherSubmit.onclick = submitDispatcherReply;
+
 setupCallerSelect();
+updateSubmitState();
 renderExtraction({});
 transcriptInput.addEventListener("input", (e) => sendTranscript(e.target.value));
 tickClock();
